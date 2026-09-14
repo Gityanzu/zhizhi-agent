@@ -208,15 +208,14 @@
               >
                 <el-icon><Microphone /></el-icon>
               </button>
-            </div>
-            <div class="input-right-actions">
               <!-- 思考开关 -->
               <el-tooltip content="开启思考过程" placement="top">
                 <button class="action-btn thinking-btn" :class="{ active: chatStore.enableThinking }" @click="chatStore.enableThinking = !chatStore.enableThinking">
                   <el-icon><MagicStick /></el-icon>
                 </button>
               </el-tooltip>
-
+            </div>
+            <div class="input-right-actions">
               <!-- 模型选择器 -->
               <el-dropdown trigger="click" class="model-dropdown">
                 <button class="model-select-btn">
@@ -1161,28 +1160,69 @@ watch(
   }
   
   .welcome {
-    padding: 30px 12px;
+    padding: 24px 12px;
+  }
+  
+  .welcome-icon {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 12px;
   }
   
   .welcome-icon :deep(.el-icon) {
-    font-size: 48px !important;
+    font-size: 40px !important;
   }
   
   .welcome h2 {
     font-size: 18px;
+    margin-bottom: 8px;
   }
   
   .welcome p {
     font-size: 13px;
+    margin-bottom: 20px;
+  }
+  
+  /* 功能卡片改成2x2网格 */
+  .feature-cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    max-width: 100%;
+    margin-bottom: 20px;
+  }
+  
+  .feature-card {
+    padding: 14px 10px;
+  }
+  
+  .feature-icon {
+    width: 36px;
+    height: 36px;
+    margin-bottom: 8px;
+    font-size: 18px;
+  }
+  
+  .feature-title {
+    font-size: 12px;
+    margin-bottom: 2px;
+  }
+  
+  .feature-desc {
+    font-size: 10px;
+    line-height: 1.3;
   }
   
   .quick-questions {
     gap: 8px;
+    max-width: 100%;
   }
   
   .quick-item {
-    padding: 8px 12px;
+    padding: 8px 14px;
     font-size: 12px;
+    flex: 1;
+    min-width: calc(50% - 4px);
+    text-align: center;
   }
   
   .input-area {
@@ -1193,28 +1233,63 @@ watch(
     max-width: 100%;
   }
   
+  .input-box textarea {
+    font-size: 14px;
+    padding: 10px 12px;
+    min-height: 60px;
+  }
+  
   .input-bottom-bar {
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 10px;
+    padding-top: 10px;
   }
   
-  .input-left-actions,
-  .input-right-actions {
+  .input-left-actions {
     gap: 4px;
+    flex: 1;
   }
   
-  .mode-select-btn,
-  .model-select-btn {
-    padding: 4px 8px;
+  .input-right-actions {
+    gap: 8px;
+    flex: 1;
+    justify-content: flex-end;
+  }
+  
+  .action-btn {
+    width: 32px;
+    height: 32px;
+    font-size: 16px;
+  }
+  
+  .mode-select-btn {
+    padding: 5px 10px;
     font-size: 12px;
+    height: 32px;
+  }
+  
+  .model-select-btn {
+    padding: 5px 12px;
+    font-size: 12px;
+    height: 32px;
+    flex: 1;
+    max-width: none;
   }
   
   .model-name {
-    max-width: 80px;
+    max-width: 120px;
   }
   
   .model-tag {
     display: none;
+  }
+  
+  .send-btn,
+  .stop-btn {
+    padding: 5px 16px;
+    font-size: 13px;
+    height: 32px;
+    min-width: 60px;
   }
   
   .input-actions {
@@ -1229,11 +1304,38 @@ watch(
     max-width: 100%;
     flex-wrap: wrap;
     gap: 6px;
+    font-size: 11px;
   }
   
   .image-preview img {
-    max-width: 150px;
-    max-height: 120px;
+    max-width: 120px;
+    max-height: 100px;
+  }
+  
+  /* 消息气泡优化 */
+  .message-item {
+    gap: 8px;
+  }
+  
+  .message-avatar {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+  
+  .message-bubble {
+    padding: 10px 14px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  
+  .message-actions {
+    gap: 4px;
+  }
+  
+  .message-actions button {
+    padding: 2px 6px;
+    font-size: 11px;
   }
 }
 
@@ -1244,24 +1346,122 @@ watch(
   }
   
   .welcome {
-    padding: 20px 8px;
+    padding: 16px 8px;
+  }
+  
+  .welcome-icon {
+    width: 56px;
+    height: 56px;
+    margin-bottom: 10px;
+  }
+  
+  .welcome-icon :deep(.el-icon) {
+    font-size: 32px !important;
   }
   
   .welcome h2 {
     font-size: 16px;
+    margin-bottom: 6px;
   }
   
   .welcome p {
     font-size: 12px;
+    margin-bottom: 16px;
+  }
+  
+  .feature-cards {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  
+  .feature-card {
+    padding: 12px 8px;
+  }
+  
+  .feature-icon {
+    width: 32px;
+    height: 32px;
+    margin-bottom: 6px;
+    font-size: 16px;
+  }
+  
+  .feature-title {
+    font-size: 11px;
+  }
+  
+  .feature-desc {
+    font-size: 9px;
   }
   
   .quick-item {
     padding: 6px 10px;
     font-size: 11px;
+    min-width: calc(50% - 4px);
   }
   
   .input-area {
     padding: 8px 10px 12px;
+  }
+  
+  .input-box textarea {
+    font-size: 13px;
+    padding: 8px 10px;
+    min-height: 50px;
+  }
+  
+  .input-bottom-bar {
+    gap: 8px;
+    padding-top: 8px;
+  }
+  
+  .input-left-actions {
+    gap: 2px;
+  }
+  
+  .input-right-actions {
+    gap: 6px;
+  }
+  
+  .action-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+  
+  .mode-select-btn {
+    padding: 4px 8px;
+    font-size: 11px;
+    height: 28px;
+  }
+  
+  .model-select-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    height: 28px;
+    flex: 1;
+  }
+  
+  .model-name {
+    max-width: 90px;
+  }
+  
+  .send-btn,
+  .stop-btn {
+    padding: 4px 12px;
+    font-size: 12px;
+    height: 28px;
+    min-width: 50px;
+  }
+  
+  .message-bubble {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+  
+  .message-avatar {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
   }
 }
 </style>

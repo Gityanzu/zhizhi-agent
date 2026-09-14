@@ -6,7 +6,13 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test:llm": "node tests/test_llm.js",
+    "test:baidu": "node tests/test_baidu.js",
+    "test:token": "node tests/test_token.js",
+    "test:thinking": "node tests/test_thinking.js",
+    "test:vl": "node tests/test_vl.js",
+    "test:net": "node tests/test_net.js"
   },
   "dependencies": {
     "@langchain/community": "^0.0.41",

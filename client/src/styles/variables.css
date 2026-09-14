@@ -1,0 +1,104 @@
+/* ============================================
+ * 设计令牌 - CSS变量
+ * 浅色/深色双主题
+ * ============================================ */
+
+/* 浅色主题（默认）- 现代简洁风 */
+:root {
+  /* 背景色 */
+  --bg-primary: #f9fafb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f3f4f6;
+  --bg-hover: #e5e7eb;
+
+  /* 文字色 */
+  --text-primary: #111827;
+  --text-secondary: #6b7280;
+  --text-placeholder: #9ca3af;
+
+  /* 边框 */
+  --border-color: #e5e7eb;
+  --border-light: #f3f4f6;
+
+  /* 滚动条 */
+  --scrollbar-thumb: #d1d5db;
+  --scrollbar-thumb-hover: #9ca3af;
+
+  /* 代码 */
+  --code-bg: #f8fafc;
+  --code-inline-bg: #f1f5f9;
+  --table-header-bg: #f8fafc;
+
+  /* 阴影 */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+
+  /* 品牌色 */
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-light: #eff6ff;
+  --primary-gradient: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+
+  /* 状态色 */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  /* 圆角 */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+/* 深色主题 - 现代深灰风 */
+.dark {
+  /* 背景色 */
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1f1f1f;
+  --bg-hover: #2a2a2a;
+
+  /* 文字色 */
+  --text-primary: #f5f5f5;
+  --text-secondary: #a1a1aa;
+  --text-placeholder: #52525b;
+
+  /* 边框 */
+  --border-color: #27272a;
+  --border-light: #1f1f1f;
+
+  /* 滚动条 */
+  --scrollbar-thumb: #3f3f46;
+  --scrollbar-thumb-hover: #52525b;
+
+  /* 代码 */
+  --code-bg: #18181b;
+  --code-inline-bg: #27272a;
+  --table-header-bg: #1f1f1f;
+
+  /* 阴影 */
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+
+  /* 品牌色 */
+  --primary: #60a5fa;
+  --primary-hover: #93c5fd;
+  --primary-light: #1e3a5f;
+  --primary-gradient: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+
+  /* 状态色 */
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+
+  /* 圆角 */
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}

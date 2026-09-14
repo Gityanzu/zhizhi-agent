@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>用户登录</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "Microsoft YaHei", Arial, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .login-card {
+      width: 380px;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+      padding: 40px 36px;
+    }
+    .login-card h1 {
+      font-size: 24px;
+      color: #333;
+      text-align: center;
+      margin-bottom: 8px;
+    }
+    .login-card p.subtitle {
+      font-size: 13px;
+      color: #999;
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .form-group { margin-bottom: 18px; }
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 6px;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 12px 14px;
+      font-size: 14px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      outline: none;
+      transition: border-color .2s, box-shadow .2s;
+    }
+    .form-group input:focus {
+      border-color: #667eea;
+      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+    }
+    .options {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 13px;
+      margin-bottom: 22px;
+      color: #666;
+    }
+    .options a { color: #667eea; text-decoration: none; }
+    .options a:hover { text-decoration: underline; }
+    .btn-login {
+      width: 100%;
+      padding: 12px;
+      font-size: 15px;
+      color: #fff;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: opacity .2s, transform .1s;
+    }
+    .btn-login:hover { opacity: .9; }
+    .btn-login:active { transform: scale(.98); }
+    .error-msg {
+      display: none;
+      font-size: 13px;
+      color: #e74c3c;
+      margin-bottom: 14px;
+      text-align: center;
+    }
+    .register-tip {
+      margin-top: 20px;
+      text-align: center;
+      font-size: 13px;
+      color: #888;
+    }
+    .register-tip a { color: #667eea; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <h1>欢迎登录</h1>
+    <p class="subtitle">请输入您的账号信息</p>
+
+    <form id="loginForm" novalidate>
+      <div class="form-group">
+        <label for="username">用户名</label>
+        <input type="text" id="username" name="username" placeholder="请输入用户名" autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label for="password">密码</label>
+        <input type="password" id="password" name="password" placeholder="请输入密码" autocomplete="current-password" />
+      </div>
+      <div class="options">
+        <label><input type="checkbox" id="remember" /> 记住我</label>
+        <a href="#">忘记密码？</a>
+      </div>
+      <p class="error-msg" id="errorMsg"></p>
+      <button type="submit" class="btn-login">登 录</button>
+    </form>
+
+    <p class="register-tip">还没有账号？<a href="#">立即注册</a></p>
+  </div>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const errorMsg = document.getElementById('errorMsg');
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+
+      errorMsg.style.display = 'none';
+
+      if (!username) {
+        showError('请输入用户名');
+        return;
+      }
+      if (!password) {
+        showError('请输入密码');
+        return;
+      }
+      if (password.length < 6) {
+        showError('密码长度不能少于6位');
+        return;
+      }
+
+      // 此处可替换为真实的登录接口调用
+      console.log('登录提交：', { username, password, remember: document.getElementById('remember').checked });
+      alert('登录成功！（示例）');
+      form.reset();
+    });
+
+    function showError(msg) {
+      errorMsg.textContent = msg;
+      errorMsg.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

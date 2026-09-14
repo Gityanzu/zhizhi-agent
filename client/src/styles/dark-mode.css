@@ -1,0 +1,354 @@
+/* ============================================
+ * 深色模式 - 组件覆盖样式
+ * ============================================ */
+
+.dark {
+  color-scheme: dark;
+}
+
+/* ========== 侧边栏 ========== */
+.dark .sidebar {
+  background: var(--bg-secondary) !important;
+  border-right: 1px solid var(--border-color) !important;
+}
+
+.dark .sidebar .session-item {
+  color: var(--text-secondary) !important;
+}
+
+.dark .sidebar .session-item:hover {
+  background: var(--bg-tertiary) !important;
+}
+
+.dark .sidebar .session-item.active {
+  background: var(--bg-tertiary) !important;
+  color: var(--text-primary) !important;
+  border-left: 3px solid var(--primary);
+}
+
+.dark .sidebar .section-title {
+  color: var(--text-secondary) !important;
+}
+
+.dark .sidebar .stat-label {
+  color: var(--text-secondary) !important;
+}
+
+.dark .sidebar .stat-value {
+  color: var(--text-primary) !important;
+}
+
+/* ========== 消息区域 ========== */
+.dark .messages-container {
+  background: var(--bg-primary) !important;
+}
+
+/* 消息气泡 */
+.dark .message-item .message-bubble {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color) !important;
+}
+
+.dark .message-item.user .message-bubble {
+  background: var(--primary-light) !important;
+  color: #fff !important;
+  border: 1px solid var(--primary) !important;
+}
+
+.dark .message-item .message-text {
+  color: var(--text-primary) !important;
+}
+
+.dark .message-item .loading-text {
+  color: var(--text-secondary) !important;
+}
+
+/* 思考过程 */
+.dark .thinking-block,
+.dark .thinking-content {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* 工具调用 */
+.dark .tool-call-item,
+.dark .tool-call-detail {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+}
+
+.dark .tool-call-detail code {
+  background: var(--code-inline-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Plan 步骤 */
+.dark .plan-steps,
+.dark .plan-step-item {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* 多 Agent 轨迹 */
+.dark .agent-trace-item {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.dark .trace-content,
+.dark .trace-action {
+  color: var(--text-secondary) !important;
+}
+
+/* 来源引用 */
+.dark .sources {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.dark .sources-title,
+.dark .source-name {
+  color: var(--text-secondary) !important;
+}
+
+.dark .source-item {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border-color) !important;
+}
+
+/* ========== 输入区域 ========== */
+.dark .input-area {
+  background: var(--bg-secondary) !important;
+  border-top: 1px solid var(--border-color) !important;
+}
+
+.dark .input-tip {
+  color: var(--text-secondary) !important;
+}
+
+/* ========== 欢迎页 ========== */
+.dark .welcome h2,
+.dark .welcome p {
+  color: var(--text-primary) !important;
+}
+
+.dark .quick-item {
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-secondary) !important;
+  border-radius: var(--radius-lg) !important;
+  transition: all 0.2s ease;
+}
+
+.dark .quick-item:hover {
+  background: var(--bg-hover) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+}
+
+/* ========== 搜索栏 ========== */
+.dark .search-bar {
+  background: var(--bg-secondary) !important;
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
+/* ========== 文档预览 ========== */
+.dark .preview-text {
+  color: var(--text-primary) !important;
+}
+
+.dark .preview-meta {
+  border-bottom-color: var(--border-color) !important;
+}
+
+/* ========== Element Plus 组件深色适配 ========== */
+.dark .el-dialog,
+.dark .el-drawer,
+.dark .el-drawer__body,
+.dark .el-card {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border-color) !important;
+}
+
+.dark .el-dialog__title,
+.dark .el-drawer__title,
+.dark .el-card__title {
+  color: var(--text-primary) !important;
+}
+
+.dark .el-form-item__label {
+  color: var(--text-secondary) !important;
+}
+
+.dark .el-tag {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+}
+
+.dark .el-divider__text {
+  background: var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
+}
+
+.dark .el-empty__description p {
+  color: var(--text-secondary) !important;
+}
+
+/* ========== 顶部栏按钮 ========== */
+.dark .header .el-button {
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--text-secondary) !important;
+  transition: all 0.2s ease;
+}
+
+.dark .header .el-button:hover {
+  background: var(--bg-hover) !important;
+  border-color: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+.dark .header .el-button.is-active {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: #fff !important;
+}
+
+/* ========== 输入框 ========== */
+.dark .el-input__wrapper,
+.dark .el-textarea__inner {
+  background: var(--bg-tertiary) !important;
+  box-shadow: 0 0 0 1px var(--border-color) inset !important;
+  border-radius: var(--radius) !important;
+}
+
+.dark .el-input__inner,
+.dark .el-textarea__inner {
+  color: var(--text-primary) !important;
+}
+
+.dark .el-input__inner::placeholder,
+.dark .el-textarea__inner::placeholder {
+  color: var(--text-placeholder) !important;
+}
+
+/* ========== 发送/停止按钮 ========== */
+.dark .send-btn {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: #fff !important;
+  border-radius: var(--radius) !important;
+}
+
+.dark .send-btn:hover {
+  background: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+}
+
+.dark .stop-btn {
+  background: var(--danger) !important;
+  border-color: var(--danger) !important;
+  color: #fff !important;
+}
+
+/* ========== 搜索按钮 ========== */
+.dark .search-toggle {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* ========== 模式提示条 ========== */
+.dark .mode-tip {
+  background: var(--bg-secondary) !important;
+  color: var(--text-secondary) !important;
+  border-top: 1px solid var(--border-color) !important;
+}
+
+/* ========== 上传区域 ========== */
+.dark .upload-area {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* ========== 文档项 ========== */
+.dark .doc-item {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+  border-radius: var(--radius) !important;
+}
+
+.dark .doc-name {
+  color: var(--text-primary) !important;
+}
+
+.dark .doc-meta {
+  color: var(--text-secondary) !important;
+}
+
+/* ========== 统计卡片 ========== */
+.dark .stat-card {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+  border-radius: var(--radius) !important;
+}
+
+.dark .stat-value {
+  color: var(--text-primary) !important;
+}
+
+.dark .stat-label {
+  color: var(--text-secondary) !important;
+}
+
+/* ========== 消息操作按钮 ========== */
+.dark .message-actions .el-button {
+  background: var(--bg-tertiary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-secondary) !important;
+}
+
+/* ========== Markdown 深色适配 ========== */
+.dark .markdown-body pre {
+  background: var(--code-bg) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: var(--radius) !important;
+}
+
+.dark .markdown-body code {
+  background: var(--code-inline-bg) !important;
+  color: var(--warning) !important;
+}
+
+.dark .markdown-body pre code {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+.dark .markdown-body blockquote {
+  background: var(--bg-tertiary) !important;
+  border-left-color: var(--primary) !important;
+  color: var(--text-secondary) !important;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.dark .markdown-body table {
+  border-color: var(--border-color) !important;
+}
+
+.dark .markdown-body td,
+.dark .markdown-body th {
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.dark .markdown-body hr {
+  border-color: var(--border-color) !important;
+}

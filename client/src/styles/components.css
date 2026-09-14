@@ -1,0 +1,140 @@
+/* ============================================
+ * 通用组件样式
+ * ============================================ */
+
+/* ========== 引用与来源高亮 ========== */
+.citation {
+  color: var(--primary);
+  font-size: 0.72em;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 3px;
+  transition: background 0.15s;
+  user-select: none;
+}
+
+.citation:hover {
+  background: var(--primary-light);
+  text-decoration: underline;
+}
+
+.source-highlight mark,
+.sd-snippet mark,
+.source-popup mark {
+  background: #fff3a0;
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* 来源卡片网格 */
+.source-card {
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.source-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 2px 6px rgba(64, 158, 255, 0.15);
+}
+
+/* 深色主题：来源高亮 */
+.dark .source-highlight mark,
+.dark .sd-snippet mark,
+.dark .source-popup mark {
+  background: rgba(250, 204, 21, 0.35);
+  color: inherit;
+}
+
+.dark .citation:hover {
+  background: var(--primary-light);
+}
+
+.dark .source-item,
+.dark .source-card {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+.dark .source-name {
+  color: var(--text-secondary);
+}
+
+.dark .source-score {
+  color: var(--success);
+}
+
+.dark .sd-snippet {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+.dark .sd-label {
+  color: var(--text-secondary);
+}
+
+.dark .sd-value {
+  color: var(--text-primary);
+}
+
+/* ============================================
+ * 页面布局 - 通用样式
+ * ============================================ */
+
+.page-layout {
+  display: flex;
+  height: 100vh;
+  background: var(--bg-primary);
+}
+
+.page-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page-header {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.page-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.page-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.page-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px 24px;
+}
+
+/* 页面内Tabs通用样式 */
+.page-tabs {
+  height: 100%;
+}
+
+.page-tabs :deep(.el-tabs__content) {
+  height: calc(100% - 40px);
+  overflow: auto;
+}

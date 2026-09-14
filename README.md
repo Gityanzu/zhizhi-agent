@@ -10,9 +10,19 @@
 
 ## 项目展示
 
-![智知 Agent 演示界面](docs/zhizhi-agent-demo.svg)
+### 桌面端 - 多 Agent 协作
 
-> 该图是基于当前界面样式整理的项目展示图，用于在 GitHub 项目主页中展示实际功能效果。
+![多Agent协作过程](docs/screenshots/02-multi-agent-collaboration.png)
+
+> Planner 规划 → Executor 执行 → Reviewer 审查，三 Agent 协同完成复杂任务，完整展示 13 步协作过程。
+
+### 移动端 - 响应式适配
+
+![移动端欢迎页](docs/screenshots/01-mobile-welcome.png)
+
+> 完整响应式布局，支持桌面端、平板、手机等多端访问，功能卡片 2x2 网格自适应。
+
+更多截图请查看 [docs/screenshots/](docs/screenshots/) 目录。
 
 ## 项目概览
 
@@ -363,10 +373,17 @@ zhizhi-agent/
 │   │   │   └── server.ts           # MCP JSON-RPC 2.0 服务器
 │   │   └── skills/                 # Skill 系统
 │   │       └── index.ts            # 5 个内置 Skill 与管理器
+│   ├── tests/                      # 测试脚本（11个测试文件）
+│   │   ├── test_llm.js             # 大模型基础测试
+│   │   ├── test_token.js           # Token统计测试
+│   │   ├── test_vl.js              # 视觉理解测试
+│   │   └── README.md               # 测试说明文档
+│   ├── logs/                       # 日志文件（git忽略）
 │   ├── agent_output/               # Agent 工作目录
 │   ├── package.json
 │   ├── tsconfig.json
-│   └── .env.example
+│   ├── .env.example
+│   └── .gitignore
 ├── client/                          # 前端应用
 │   ├── src/
 │   │   ├── main.ts                 # 入口文件

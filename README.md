@@ -1,6 +1,21 @@
 # 智知 - 企业知识库智能问答 Agent
 
-基于 RAG（检索增强生成）、Function Calling、Plan-and-Execute 与多 Agent 协作的企业知识库问答系统，支持多格式文档解析、语义检索、多轮对话、工具自动调用、任务规划执行、MCP 协议与 Skill 系统。
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Vue](https://img.shields.io/badge/Vue-3.x-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+
+基于 RAG（检索增强生成）、Function Calling、Plan-and-Execute 与多 Agent 协作的企业知识库智能问答系统，支持多格式文档解析、语义检索、多轮对话、工具自动调用、任务规划执行、MCP 协议与 Skill 系统。本项目同时包含前端应用、后端服务、数据持久化层与可扩展的 Agent/Workflow 能力，适合作为企业知识库助手、内部知识问答平台或 AI Agent 原型的开发基础。
+
+## 项目概览
+
+- 🧠 **统一的知识库问答体验**：支持多个任务模式切换，满足常见问答、工具调用、复杂任务规划与多 Agent 协作场景。
+- ⚙️ **可扩展的工具与 Agent 能力**：内置 13+ 个工具，支持自定义 Agent、自定义 API 工具、工作流编排与外部 MCP 接入。
+- 📚 **企业级知识库支持**：支持 PDF / Word / Markdown / TXT 多格式文档解析，支持知识库隔离、混合检索与 Rerank。
+- 📊 **可观测性与运营分析**：包含 Token 用量统计、会话统计、模型分析、调用日志、可观测性面板与审计能力。
+- 🔐 **安全与工程实践**：具备 XSS、防注入、Shell 白名单、API Key 加密存储、CORS 限制与生产环境错误隐藏等措施。
+- 🌐 **多端适配**：支持桌面端浏览器、响应式布局、PWA 安装方式，为后续 App / Windows 桌面端扩展打基础。
 
 ## 项目特性
 

@@ -1,0 +1,47 @@
+[
+  {
+    "agentId": "a56b1468-5596-48cf-962b-6b0d539b56fb",
+    "userId": "test-user-001",
+    "rating": 5,
+    "comment": "这是一个非常棒的 Agent！",
+    "id": "cc382323-d027-4be2-8d95-e9263680da7d",
+    "createdAt": "2026-09-15T03:05:54.090Z",
+    "updatedAt": "2026-09-15T03:05:54.090Z"
+  },
+  {
+    "agentId": "a56b1468-5596-48cf-962b-6b0d539b56fb",
+    "userId": "user-002",
+    "rating": 4,
+    "comment": "第 1 个用户的评价",
+    "id": "d533a43e-2c6e-404e-8f96-a36923fb2caf",
+    "createdAt": "2026-09-15T03:05:54.142Z",
+    "updatedAt": "2026-09-15T03:05:54.142Z"
+  },
+  {
+    "agentId": "a56b1468-5596-48cf-962b-6b0d539b56fb",
+    "userId": "user-003",
+    "rating": 3,
+    "comment": "第 2 个用户的评价",
+    "id": "cf9e915b-eaa5-4d82-a6aa-4ec12a1107f2",
+    "createdAt": "2026-09-15T03:05:54.143Z",
+    "updatedAt": "2026-09-15T03:05:54.143Z"
+  },
+  {
+    "agentId": "a56b1468-5596-48cf-962b-6b0d539b56fb",
+    "userId": "user-004",
+    "rating": 5,
+    "comment": "第 3 个用户的评价",
+    "id": "b99880e6-1e64-409c-a400-e0855f645fb2",
+    "createdAt": "2026-09-15T03:05:54.153Z",
+    "updatedAt": "2026-09-15T03:05:54.153Z"
+  },
+  {
+    "agentId": "a56b1468-5596-48cf-962b-6b0d539b56fb",
+    "userId": "user-005",
+    "rating": 2,
+    "comment": "第 4 个用户的评价",
+    "id": "e6530ddf-233c-41e8-98af-19bf23decef1",
+    "createdAt": "2026-09-15T03:05:54.161Z",
+    "updatedAt": "2026-09-15T03:05:54.161Z"
+  }
+]

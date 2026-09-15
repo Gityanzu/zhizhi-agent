@@ -1,0 +1,16 @@
+[
+  {
+    "id": "a56b1468-5596-48cf-962b-6b0d539b56fb",
+    "name": "测试评分 Agent",
+    "avatar": "⭐",
+    "description": "用于测试评分系统的 Agent",
+    "systemPrompt": "你是一个测试 Agent",
+    "model": "",
+    "tools": [
+      "web_search"
+    ],
+    "temperature": 0.7,
+    "createdAt": "2026-09-15T03:05:54.088Z",
+    "updatedAt": "2026-09-15T03:05:54.088Z"
+  }
+]

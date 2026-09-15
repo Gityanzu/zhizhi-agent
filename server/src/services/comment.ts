@@ -399,6 +399,150 @@ export async function getAllComments(): Promise<AgentComment[]> {
 /**
  * 获取用户评论
  */
+/**
+ * 审核评论
+ */
+export async function moderateComment(
+  commentId: string,
+  moderatorId: string,
+  action: 'approve' | 'reject' | 'hide',
+  reason?: string
+): Promise<AgentComment> {
+  if (usePostgres) {
+    try {
+      // 检查评论是否存在
+      const existing = await getComment(commentId);
+      if (!existing) {
+        throw new Error('评论不存在');
+      }
+
+      // 更新评论状态
+      const status = action === 'approve' ? 'active' : action === 'reject' ? 'rejected' : 'hidden';
+
+      const result = await query(
+        `UPDATE ${TABLE_NAME}
+         SET updated_at = NOW(),
+             status = $1,
+             moderated_by = $2,
+             moderation_reason = $3
+         WHERE id = $4
+         RETURNING *`,
+        [status, moderatorId, reason || '', commentId]
+      );
+
+      if (result.rows.length === 0) {
+        throw new Error('更新评论失败');
+      }
+
+      const comment = mapRow(result.rows[0]);
+
+      // 如果是拒绝或隐藏，减少点赞数
+      if (action !== 'approve' && comment.likes > 0) {
+        comment.likes = 0;
+      }
+
+      return comment;
+    } catch (error) {
+      console.error('审核评论失败:', error);
+      throw error;
+    }
+  } else {
+    // 文件存储模式
+    const comments = loadCommentsFromFile();
+    const commentIndex = comments.findIndex(c => c.id === commentId);
+    if (commentIndex === -1) {
+      throw new Error('评论不存在');
+    }
+
+    const comment = comments[commentIndex];
+    comment.status = action === 'approve' ? 'active' : action === 'reject' ? 'rejected' : 'hidden';
+    comment.moderatedBy = moderatorId;
+    comment.moderationReason = reason || '';
+    comment.updatedAt = new Date().toISOString();
+
+    // 如果是拒绝或隐藏，减少点赞数
+    if (action !== 'approve' && comment.likes > 0) {
+      comment.likes = 0;
+    }
+
+    saveCommentsToFile(comments);
+    return comment;
+  }
+}
+
+/**
+ * 获取待审核评论
+ */
+export async function getPendingComments(): Promise<AgentComment[]> {
+  if (usePostgres) {
+    try {
+      const rows = await query(
+        `SELECT * FROM ${TABLE_NAME}
+         WHERE status IS NULL OR status = 'pending'
+         ORDER BY created_at ASC`
+      );
+      return rows.map(mapRow);
+    } catch (error) {
+      console.error('获取待审核评论失败:', error);
+      return [];
+    }
+  } else {
+    const comments = loadCommentsFromFile();
+    return comments
+      .filter(c => !c.status || c.status === 'pending')
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+}
+
+/**
+ * 获取已隐藏评论
+ */
+export async function getHiddenComments(): Promise<AgentComment[]> {
+  if (usePostgres) {
+    try {
+      const rows = await query(
+        `SELECT * FROM ${TABLE_NAME}
+         WHERE status = 'hidden'
+         ORDER BY updated_at DESC`
+      );
+      return rows.map(mapRow);
+    } catch (error) {
+      console.error('获取已隐藏评论失败:', error);
+      return [];
+    }
+  } else {
+    const comments = loadCommentsFromFile();
+    return comments
+      .filter(c => c.status === 'hidden')
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+}
+
+/**
+ * 批量审核评论
+ */
+export async function batchModerateComments(
+  commentIds: string[],
+  moderatorId: string,
+  action: 'approve' | 'reject' | 'hide',
+  reason?: string
+): Promise<{ success: number; failed: number }> {
+  let success = 0;
+  let failed = 0;
+
+  for (const commentId of commentIds) {
+    try {
+      await moderateComment(commentId, moderatorId, action, reason);
+      success++;
+    } catch (error) {
+      console.error(`批量审核失败 - 评论 ${commentId}:`, error);
+      failed++;
+    }
+  }
+
+  return { success, failed };
+}
+
 export async function getUserComments(userId: string): Promise<AgentComment[]> {
   if (usePostgres) {
     const result = await query(

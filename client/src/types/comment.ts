@@ -3,11 +3,6 @@
  */
 
 /**
- * 评论状态
- */
-export type CommentStatus = 'active' | 'pending' | 'rejected' | 'hidden';
-
-/**
  * Agent 评论
  */
 export interface AgentComment {
@@ -19,9 +14,6 @@ export interface AgentComment {
   likes: number;
   createdAt: string;
   updatedAt: string;
-  status?: CommentStatus; // 评论状态
-  moderatedBy?: string; // 审核人ID
-  moderationReason?: string; // 审核理由
 }
 
 /**

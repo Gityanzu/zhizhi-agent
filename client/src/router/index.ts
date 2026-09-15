@@ -1,8 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
+import { useAuthStore } from '@/stores/auth';
 
 // 路由配置
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { title: '登录 - 智知 Agent', public: true },
+  },
   {
     path: '/',
     redirect: '/chat',
@@ -25,6 +32,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Agents',
     component: () => import('@/views/AgentsView.vue'),
     meta: { title: 'Agent 市场' },
+  },
+  {
+    path: '/search',
+    name: 'Search',
+    component: () => import('@/views/SearchView.vue'),
+    meta: { title: '搜索 Agent' },
   },
   {
     path: '/knowledge',

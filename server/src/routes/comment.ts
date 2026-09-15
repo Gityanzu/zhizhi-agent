@@ -359,4 +359,150 @@ router.get('/user/:userId', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * 审核评论
+ * POST /api/agent-market/comments/:commentId/moderate
+ */
+router.post('/:commentId/moderate', async (req: Request, res: Response) => {
+  try {
+    const { commentId } = req.params;
+    const { action, reason } = req.body;
+
+    // 需要管理员权限
+    if (!req.userId || req.user?.role !== 'admin') {
+      return res.status(403).json({
+        code: 403,
+        message: '无权限执行此操作',
+      });
+    }
+
+    if (!action || !['approve', 'reject', 'hide'].includes(action)) {
+      return res.status(400).json({
+        code: 400,
+        message: '无效的审核操作',
+      });
+    }
+
+    const comment = await moderateComment(commentId, req.userId, action, reason);
+
+    res.json({
+      code: 200,
+      message: '审核成功',
+      data: comment,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: '审核评论失败',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * 获取待审核评论
+ * GET /api/agent-market/comments/pending
+ */
+router.get('/pending', async (req: Request, res: Response) => {
+  try {
+    // 需要管理员权限
+    if (!req.userId || req.user?.role !== 'admin') {
+      return res.status(403).json({
+        code: 403,
+        message: '无权限访问',
+      });
+    }
+
+    const comments = await getPendingComments();
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: comments,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: '获取待审核评论失败',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * 获取已隐藏评论
+ * GET /api/agent-market/comments/hidden
+ */
+router.get('/hidden', async (req: Request, res: Response) => {
+  try {
+    // 需要管理员权限
+    if (!req.userId || req.user?.role !== 'admin') {
+      return res.status(403).json({
+        code: 403,
+        message: '无权限访问',
+      });
+    }
+
+    const comments = await getHiddenComments();
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: comments,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: '获取已隐藏评论失败',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+/**
+ * 批量审核评论
+ * POST /api/agent-market/comments/batch-moderate
+ */
+router.post('/batch-moderate', async (req: Request, res: Response) => {
+  try {
+    const { commentIds, action, reason } = req.body;
+
+    // 需要管理员权限
+    if (!req.userId || req.user?.role !== 'admin') {
+      return res.status(403).json({
+        code: 403,
+        message: '无权限执行此操作',
+      });
+    }
+
+    if (!Array.isArray(commentIds) || commentIds.length === 0) {
+      return res.status(400).json({
+        code: 400,
+        message: '评论 ID 列表不能为空',
+      });
+    }
+
+    if (!action || !['approve', 'reject', 'hide'].includes(action)) {
+      return res.status(400).json({
+        code: 400,
+        message: '无效的审核操作',
+      });
+    }
+
+    const result = await batchModerateComments(commentIds, req.userId, action, reason);
+
+    res.json({
+      code: 200,
+      message: '批量审核完成',
+      data: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: '批量审核失败',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 export default router;

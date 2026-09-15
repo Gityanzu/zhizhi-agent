@@ -9,3 +9,5 @@ export * from './agent';
 export * from './knowledge';
 export * from './stats';
 export * from './common';
+export * from './auth';
+export * from './userApiKey';

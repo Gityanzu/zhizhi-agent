@@ -38,5 +38,53 @@
     "id": "0113e690-48e0-4bb8-a71c-6a90f5381956",
     "createdAt": "2026-09-15T06:04:14.377Z",
     "updatedAt": "2026-09-15T06:04:14.377Z"
+  },
+  {
+    "agentId": "c2f2d7dd-bca5-40e7-84d5-881da2d4fe84",
+    "userId": "test-user-comment",
+    "content": "用于审核的测试评论，内容长度超过10个字符",
+    "likes": 0,
+    "id": "8192a945-60ce-4fe8-b9ba-efdb435ba9a0",
+    "createdAt": "2026-09-15T07:11:46.433Z",
+    "updatedAt": "2026-09-15T07:11:46.451Z",
+    "status": "active",
+    "moderatedBy": "admin-user",
+    "moderationReason": "内容符合要求"
+  },
+  {
+    "agentId": "c2f2d7dd-bca5-40e7-84d5-881da2d4fe84",
+    "userId": "user-0",
+    "content": "批量测试评论 1 - 内容长度超过10个字符，满足要求",
+    "likes": 0,
+    "id": "bc70d697-17be-449b-87e7-5714fbeda5eb",
+    "createdAt": "2026-09-15T07:11:46.778Z",
+    "updatedAt": "2026-09-15T07:11:46.815Z",
+    "status": "active",
+    "moderatedBy": "admin-user",
+    "moderationReason": "批量审核通过"
+  },
+  {
+    "agentId": "c2f2d7dd-bca5-40e7-84d5-881da2d4fe84",
+    "userId": "user-1",
+    "content": "批量测试评论 2 - 内容长度超过10个字符，满足要求",
+    "likes": 0,
+    "id": "cf7a1a7b-c004-4685-ace8-34eef6f8d307",
+    "createdAt": "2026-09-15T07:11:46.779Z",
+    "updatedAt": "2026-09-15T07:11:46.823Z",
+    "status": "active",
+    "moderatedBy": "admin-user",
+    "moderationReason": "批量审核通过"
+  },
+  {
+    "agentId": "c2f2d7dd-bca5-40e7-84d5-881da2d4fe84",
+    "userId": "user-2",
+    "content": "批量测试评论 3 - 内容长度超过10个字符，满足要求",
+    "likes": 0,
+    "id": "ebe0fe0f-fd72-49ff-a960-b10aab5c261d",
+    "createdAt": "2026-09-15T07:11:46.802Z",
+    "updatedAt": "2026-09-15T07:11:46.830Z",
+    "status": "active",
+    "moderatedBy": "admin-user",
+    "moderationReason": "批量审核通过"
   }
 ]

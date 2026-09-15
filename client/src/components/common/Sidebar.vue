@@ -156,15 +156,26 @@
           <span class="stat-label">向量块</span>
         </div>
       </div>
-      <div class="user-info" @click="uiStore.openSettings()">
+      <div class="user-info" @click="handleUserClick">
         <div class="user-avatar">
-          <img v-if="userProfile.avatar" :src="userProfile.avatar" alt="头像" />
+          <img v-if="displayAvatar" :src="displayAvatar" alt="头像" />
           <el-icon v-else><User /></el-icon>
         </div>
         <div class="user-detail">
-          <div class="user-name">{{ userProfile.nickname }}</div>
-          <div class="user-role">{{ userProfile.role }}</div>
+          <div class="user-name">{{ displayName }}</div>
+          <div class="user-role">{{ displayRole }}</div>
         </div>
+        <el-dropdown v-if="authStore.isAuthenticated" trigger="click" @command="handleUserCommand" class="user-dropdown" @click.stop>
+          <div class="user-more-btn">
+            <el-icon class="more-icon"><MoreFilled /></el-icon>
+          </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="settings">设置</el-dropdown-item>
+              <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </div>
   </aside>
@@ -176,11 +187,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { Plus, ChatDotRound, User, Folder, FolderAdd, Files, MoreFilled, Top, Upload, Collection, Service, Operation, Setting, DataAnalysis } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useUiStore } from '@/stores/ui'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 // 页面导航
 const navItems = [
@@ -202,6 +215,52 @@ function navigateTo(path: string) {
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 
 const userProfile = ref({ nickname: '用户', role: 'AI助手使用者', avatar: '' })
+
+// 显示用户信息（优先使用登录用户，回退到本地设置）
+const displayName = computed(() => {
+  if (authStore.isAuthenticated && authStore.user) {
+    return authStore.user.nickname || authStore.user.username
+  }
+  return userProfile.value.nickname
+})
+
+const displayRole = computed(() => {
+  if (authStore.isAuthenticated && authStore.user) {
+    return authStore.user.role === 'user' ? '已登录用户' : authStore.user.role
+  }
+  return userProfile.value.role
+})
+
+const displayAvatar = computed(() => {
+  if (authStore.isAuthenticated && authStore.user?.avatar) {
+    return authStore.user.avatar
+  }
+  return userProfile.value.avatar
+})
+
+function handleUserClick() {
+  if (!authStore.isAuthenticated) {
+    router.push('/login')
+  } else {
+    uiStore.openSettings()
+  }
+}
+
+function handleUserCommand(command: string) {
+  if (command === 'settings') {
+    uiStore.openSettings()
+  } else if (command === 'logout') {
+    ElMessageBox.confirm('确定要退出登录吗？', '确认退出', {
+      type: 'warning',
+      confirmButtonText: '退出',
+      cancelButtonText: '取消'
+    }).then(() => {
+      authStore.logout()
+      ElMessage.success('已退出登录')
+      router.push('/chat')
+    }).catch(() => {})
+  }
+}
 
 async function loadUserProfile() {
   try {
@@ -725,6 +784,30 @@ function handleSelectSession(id: string) {
 
 .user-role {
   font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.user-dropdown {
+  margin-left: auto;
+}
+
+.user-more-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.user-more-btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.1));
+}
+
+.more-icon {
+  font-size: 16px;
   color: var(--text-secondary);
 }
 

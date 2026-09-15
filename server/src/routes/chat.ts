@@ -7,7 +7,7 @@ import { multiAgentRun } from '../services/multiAgent';
 import { getSessionMessages, addMessage, createSession, getSessionInfo } from '../services/session';
 import { getRelevantMemories, extractMemories } from '../services/memory';
 import { getActiveTemplate } from '../services/prompt';
-import { isLLMConfigured, getCurrentModel, setRequestParams, ModelParams } from '../services/llm';
+import { isLLMConfigured, getCurrentModel, setRequestParams, ModelParams, setRequestUserApiKey, getEffectiveApiKey } from '../services/llm';
 import { getLLM } from '../services/llm';
 import { setRequestModelOverride } from '../services/llmProvider';
 import { recordUsage } from '../services/usage';
@@ -15,8 +15,20 @@ import { SystemMessage, HumanMessage, AIMessage } from '@langchain/core/messages
 import { ChatOpenAI } from '@langchain/openai';
 import type { ChatMessage } from '../types';
 import { getAgent } from '../services/customAgent';
+import { optionalAuth, AuthRequest } from '../middleware/auth';
+import { getDefaultApiKey } from '../services/userApiKey';
 
 const router = Router();
+
+// 辅助函数：设置请求级用户API Key
+async function setupUserApiKey(req: AuthRequest): Promise<void> {
+  if (req.userId) {
+    const userKey = await getDefaultApiKey(req.userId);
+    if (userKey) {
+      setRequestUserApiKey({ apiKey: userKey.api_key, baseUrl: userKey.base_url || undefined });
+    }
+  }
+}
 
 // 从模型输出中解析思考内容（<think>...</think> 标签）
 function extractThinking(content: string): { thinking: string; answer: string } {
@@ -254,7 +266,7 @@ async function* simpleQAStream(
 }
 
 // 非流式对话
-router.post('/send', async (req: Request, res: Response) => {
+router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { message, sessionId, mode, useAgent, enableThinking, modelParams } = req.body;
 
@@ -262,8 +274,11 @@ router.post('/send', async (req: Request, res: Response) => {
       return res.status(400).json({ error: '消息内容不能为空' });
     }
 
-    if (!isLLMConfigured()) {
-      return res.status(500).json({ error: 'LLM API Key 未配置，请在 .env 文件中设置 LLM_API_KEY' });
+    // 设置用户API Key（如果已登录且配置了）
+    await setupUserApiKey(req);
+
+    if (!isLLMConfigured() && !req.userId) {
+      return res.status(500).json({ error: 'LLM API Key 未配置，请在 .env 文件中设置 LLM_API_KEY 或登录后配置个人API Key' });
     }
 
     // 应用本次请求的模型参数覆盖
@@ -373,7 +388,7 @@ router.post('/send', async (req: Request, res: Response) => {
 });
 
 // 流式对话（SSE）
-router.post('/stream', async (req: Request, res: Response) => {
+router.post('/stream', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const {
       message,
@@ -396,8 +411,11 @@ router.post('/stream', async (req: Request, res: Response) => {
       return res.status(400).json({ error: '消息内容不能为空' });
     }
 
-    if (!isLLMConfigured()) {
-      return res.status(500).json({ error: 'LLM API Key 未配置' });
+    // 设置用户API Key（如果已登录且配置了）
+    await setupUserApiKey(req);
+
+    if (!isLLMConfigured() && !req.userId) {
+      return res.status(500).json({ error: 'LLM API Key 未配置，请设置全局API Key或登录后配置个人API Key' });
     }
 
     // 应用本次请求的模型参数覆盖（影响内部所有 getLLM() 调用）
@@ -616,7 +634,7 @@ router.post('/stream', async (req: Request, res: Response) => {
 });
 
 // 图片理解接口（多模态，使用 qwen3.5-ocr 模型）
-router.post('/vision', async (req: Request, res: Response) => {
+router.post('/vision', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { image, question, sessionId } = req.body;
     
@@ -631,14 +649,18 @@ router.post('/vision', async (req: Request, res: Response) => {
       return res.status(400).json({ error: '图片大小不能超过5MB' });
     }
     
-    if (!isLLMConfigured()) {
+    // 设置用户API Key（如果已登录且配置了）
+    await setupUserApiKey(req);
+
+    if (!isLLMConfigured() && !req.userId) {
       return res.status(500).json({ error: 'LLM API Key 未配置' });
     }
     
-    // 使用 qwen3.5-ocr 多模态模型
+    // 使用 qwen3.5-ocr 多模态模型（支持用户API Key）
+    const effectiveKey = getEffectiveApiKey();
     const visionLLM = new ChatOpenAI({
-      openAIApiKey: process.env.LLM_API_KEY,
-      configuration: { baseURL: process.env.LLM_BASE_URL },
+      openAIApiKey: effectiveKey.apiKey,
+      configuration: { baseURL: effectiveKey.baseUrl },
       modelName: 'qwen3.5-ocr',
       temperature: 0.1,
       maxTokens: 1024,

@@ -25,3 +25,4 @@ export { default as authRoutes } from './auth';
 export { default as userApiKeysRoutes } from './userApiKeys';
 export { default as agentMarketRoutes } from './agentMarket';
 export { default as ratingRoutes } from './rating';
+export { default as commentRoutes } from './comment';

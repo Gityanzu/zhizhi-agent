@@ -12,5 +12,47 @@
     "temperature": 0.7,
     "createdAt": "2026-09-15T03:05:54.088Z",
     "updatedAt": "2026-09-15T03:05:54.088Z"
+  },
+  {
+    "id": "132a31cf-a645-43b3-9cc8-361e8480a56e",
+    "name": "测试评论 Agent",
+    "avatar": "💬",
+    "description": "用于测试评论系统的 Agent",
+    "systemPrompt": "你是一个测试 Agent",
+    "model": "",
+    "tools": [
+      "web_search"
+    ],
+    "temperature": 0.7,
+    "createdAt": "2026-09-15T06:02:54.797Z",
+    "updatedAt": "2026-09-15T06:02:54.797Z"
+  },
+  {
+    "id": "943d079a-cc93-4f09-b8d0-da7aa01d116a",
+    "name": "测试评论 Agent",
+    "avatar": "💬",
+    "description": "用于测试评论系统的 Agent",
+    "systemPrompt": "你是一个测试 Agent",
+    "model": "",
+    "tools": [
+      "web_search"
+    ],
+    "temperature": 0.7,
+    "createdAt": "2026-09-15T06:03:51.616Z",
+    "updatedAt": "2026-09-15T06:03:51.616Z"
+  },
+  {
+    "id": "c2f2d7dd-bca5-40e7-84d5-881da2d4fe84",
+    "name": "测试评论 Agent",
+    "avatar": "💬",
+    "description": "用于测试评论系统的 Agent",
+    "systemPrompt": "你是一个测试 Agent",
+    "model": "",
+    "tools": [
+      "web_search"
+    ],
+    "temperature": 0.7,
+    "createdAt": "2026-09-15T06:04:14.340Z",
+    "updatedAt": "2026-09-15T06:04:14.340Z"
   }
 ]

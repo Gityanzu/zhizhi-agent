@@ -277,11 +277,14 @@ export function getCurrentProviderInfo(): Provider {
 /**
  * 根据 providerId + modelName 创建 ChatOpenAI 实例。
  * 不传 providerId 时使用当前 provider。
+ * 支持传入自定义 apiKey 和 baseUrl（用于用户级 API Key）。
  */
 export function getLLMForProvider(
   providerId: string | undefined,
   modelName: string,
-  params?: ModelParams
+  params?: ModelParams,
+  customApiKey?: string,
+  customBaseUrl?: string
 ): ChatOpenAI {
   const provider = providerId
     ? getProviders().find((p) => p.id === providerId)
@@ -292,10 +295,13 @@ export function getLLMForProvider(
   }
 
   const p = params || {};
+  const apiKey = customApiKey || provider.apiKey || 'ollama';
+  const baseUrl = customBaseUrl || provider.baseUrl;
+
   const options: Record<string, any> = {
-    openAIApiKey: provider.apiKey || 'ollama',
+    openAIApiKey: apiKey,
     configuration: {
-      baseURL: provider.baseUrl,
+      baseURL: baseUrl,
     },
     modelName,
     temperature: p.temperature ?? config.llm.temperature,

@@ -1,0 +1,42 @@
+[
+  {
+    "agentId": "943d079a-cc93-4f09-b8d0-da7aa01d116a",
+    "userId": "test-user-002",
+    "parentId": "fae924d8-a112-4ee1-a80f-b9548d8ca5b1",
+    "content": "我完全同意你的看法！这个功能确实很实用。",
+    "likes": 0,
+    "id": "8678e1b1-e41b-468f-a8df-0895b4b44bfa",
+    "createdAt": "2026-09-15T06:03:51.637Z",
+    "updatedAt": "2026-09-15T06:03:51.637Z"
+  },
+  {
+    "agentId": "943d079a-cc93-4f09-b8d0-da7aa01d116a",
+    "userId": "test-user-002",
+    "parentId": "fae924d8-a112-4ee1-a80f-b9548d8ca5b1",
+    "content": "我完全同意你的看法！这个功能确实很实用。",
+    "likes": 0,
+    "id": "38a7ae26-8d53-4e93-a9e1-52d55a068da5",
+    "createdAt": "2026-09-15T06:03:51.652Z",
+    "updatedAt": "2026-09-15T06:03:51.652Z"
+  },
+  {
+    "agentId": "c2f2d7dd-bca5-40e7-84d5-881da2d4fe84",
+    "userId": "test-user-002",
+    "parentId": "54f5eb0c-0acb-4c11-a033-439686f4f6ae",
+    "content": "我完全同意你的看法！这个功能确实很实用。",
+    "likes": 0,
+    "id": "5b5f92f7-1dda-4423-97d7-e387065f96d4",
+    "createdAt": "2026-09-15T06:04:14.362Z",
+    "updatedAt": "2026-09-15T06:04:14.362Z"
+  },
+  {
+    "agentId": "c2f2d7dd-bca5-40e7-84d5-881da2d4fe84",
+    "userId": "test-user-002",
+    "parentId": "54f5eb0c-0acb-4c11-a033-439686f4f6ae",
+    "content": "我完全同意你的看法！这个功能确实很实用。",
+    "likes": 0,
+    "id": "0113e690-48e0-4bb8-a71c-6a90f5381956",
+    "createdAt": "2026-09-15T06:04:14.377Z",
+    "updatedAt": "2026-09-15T06:04:14.377Z"
+  }
+]

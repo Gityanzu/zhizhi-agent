@@ -24,6 +24,9 @@ let embeddingsInstance: OpenAIEmbeddings | null = null;
 // 请求级参数覆盖（流式请求期间临时生效，避免改动全部调用点）
 let requestParamsOverride: ModelParams | null = null;
 
+// 请求级用户API Key覆盖（多用户支持，每个用户可用自己的API Key）
+let requestUserApiKey: { apiKey: string; baseUrl?: string } | null = null;
+
 // 设置本次请求的模型参数覆盖（用完务必调用 setRequestParams(null) 清除）
 export function setRequestParams(params: ModelParams | null): void {
   requestParamsOverride = params;
@@ -31,6 +34,28 @@ export function setRequestParams(params: ModelParams | null): void {
   if (params) {
     llmInstance = null;
   }
+}
+
+// 设置本次请求的用户API Key覆盖（用完务必调用 setRequestUserApiKey(null) 清除）
+export function setRequestUserApiKey(apiKeyInfo: { apiKey: string; baseUrl?: string } | null): void {
+  requestUserApiKey = apiKeyInfo;
+  if (apiKeyInfo) {
+    llmInstance = null; // 清除缓存，确保使用用户API Key
+  }
+}
+
+// 获取当前有效的API Key配置（用户API Key优先，回退全局配置）
+export function getEffectiveApiKey(): { apiKey: string; baseUrl: string } {
+  if (requestUserApiKey) {
+    return {
+      apiKey: requestUserApiKey.apiKey,
+      baseUrl: requestUserApiKey.baseUrl || config.llm.baseUrl
+    };
+  }
+  return {
+    apiKey: config.llm.apiKey,
+    baseUrl: config.llm.baseUrl
+  };
 }
 
 // 兼容旧导出：可用模型列表改为从 llmProvider 动态获取（含 Ollama 本地模型）。
@@ -63,7 +88,13 @@ export function setModel(modelName: string, providerId?: string): boolean {
 // 根据参数构建当前 provider + model 的 ChatOpenAI 实例
 function buildLLM(params?: ModelParams): ChatOpenAI {
   const info = getCurrentModelInfo();
-  return getLLMForProvider(info.providerId, info.id, params);
+  return getLLMForProvider(
+    info.providerId,
+    info.id,
+    params,
+    requestUserApiKey?.apiKey,
+    requestUserApiKey?.baseUrl
+  );
 }
 
 // 获取大模型实例（默认走缓存单例；若本次请求设置了参数覆盖则返回带参数的临时实例）

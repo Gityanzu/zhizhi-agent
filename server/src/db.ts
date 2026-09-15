@@ -304,6 +304,39 @@ export async function initDatabase(): Promise<boolean> {
       )
     `);
 
+    // 用户表（多用户支持）
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        username VARCHAR(50) UNIQUE NOT NULL,
+        email VARCHAR(100) UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        nickname VARCHAR(50),
+        avatar VARCHAR(500),
+        role VARCHAR(20) DEFAULT 'user',
+        status VARCHAR(20) DEFAULT 'active',
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // 用户API Key表（每个用户可配置自己的大模型API Key）
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_api_keys (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        provider VARCHAR(50) NOT NULL DEFAULT 'dashscope',
+        name VARCHAR(100) NOT NULL,
+        encrypted_key TEXT NOT NULL,
+        key_prefix VARCHAR(20),
+        base_url VARCHAR(500),
+        is_default BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, provider, name)
+      )
+    `);
+
     // 用户设置表（单用户本地配置）
     await client.query(`
       CREATE TABLE IF NOT EXISTS user_settings (

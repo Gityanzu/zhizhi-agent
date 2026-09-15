@@ -14,6 +14,9 @@ import {
   shareRoutes, importRoutes, apiKeysRoutes, externalApiRoutes, userRoutes,
   authRoutes, userApiKeysRoutes, agentMarketRoutes, ratingRoutes,
 } from './routes';
+import commentRoutes from './routes/comment';
+import searchRoutes from './routes/search';
+import templateMarketRoutes from './routes/templateMarket';
 import { initBuiltinTemplates } from './services/prompt';
 import { handleMCPRequest, getMCPServerInfo } from './mcp/server';
 
@@ -89,6 +92,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user-api-keys', userApiKeysRoutes);
 app.use('/api/agent-market', agentMarketRoutes);
 app.use('/api/agent-market/ratings', ratingRoutes);
+app.use('/api/agent-market/comments', commentRoutes);
+app.use('/api/agent-market/search', searchRoutes);
+app.use('/api/agent-market/templates', templateMarketRoutes);
 
 // 功能17：分享页面静态服务（server/public 目录）
 app.use(express.static(path.join(__dirname, '../public')));

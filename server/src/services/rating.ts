@@ -1,385 +1,353 @@
 import { v4 as uuidv4 } from 'uuid';
+import * as fs from 'fs';
+import * as path from 'path';
 import { usePostgres, query } from '../db';
-import type { AgentRating, RatingStats, RatingHistory } from '../types/rating';
-import { getAgent } from './customAgent';
+import type {
+  UserRating,
+  RatingStats,
+  CreateRatingRequest,
+  UpdateRatingRequest,
+  RatingQueryParams,
+  RatingListResponse,
+  RatingStatus,
+} from '../types/rating';
 
-const TABLE_NAME = 'agent_ratings';
+const PERSIST_DIR = path.resolve(__dirname, '../../data');
+const RATINGS_FILE = path.join(PERSIST_DIR, 'ratings.json');
 
-/**
- * 映射数据库行到 AgentRating
- */
-function mapRow(row: any): AgentRating {
-  return {
-    id: row.id,
-    agentId: row.agent_id,
-    userId: row.user_id,
-    rating: row.rating,
-    comment: row.comment,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
+// 确保目录存在
+if (!fs.existsSync(PERSIST_DIR)) {
+  fs.mkdirSync(PERSIST_DIR, { recursive: true });
 }
 
-/**
- * 生成默认评论
- */
-function generateDefaultComment(rating: number): string {
-  const comments: Record<number, string> = {
-    1: '非常不满意',
-    2: '不满意',
-    3: '一般',
-    4: '满意',
-    5: '非常满意',
-  };
-  return comments[rating] || '评论';
-}
+// 模拟数据存储
+let ratings: UserRating[] = [];
+let ratingsLoaded = false;
 
 /**
- * 创建评分
+ * 加载评分数据
  */
-export async function createRating(
-  data: { agentId: string; userId: string; rating: number; comment?: string }
-): Promise<AgentRating> {
-  // 验证 Agent 存在
-  const agent = await getAgent(data.agentId);
-  if (!agent) {
-    throw new Error(`Agent 不存在: ${data.agentId}`);
-  }
+function loadRatings(): void {
+  if (ratingsLoaded) return;
 
-  // 验证评分范围
-  if (data.rating < 1 || data.rating > 5) {
-    throw new Error('评分必须在 1-5 星之间');
-  }
-
-  // 验证评论长度
-  if (data.comment && data.comment.length > 500) {
-    throw new Error('评论长度不能超过 500 字符');
-  }
-
-  const id = uuidv4();
-  const now = new Date().toISOString();
-  const comment = data.comment || generateDefaultComment(data.rating);
-
-  const ratingData: Omit<AgentRating, 'id' | 'createdAt' | 'updatedAt'> = {
-    agentId: data.agentId,
-    userId: data.userId,
-    rating: data.rating,
-    comment,
-  };
-
-  if (usePostgres) {
-    await query(
-      `INSERT INTO ${TABLE_NAME}
-       (id, agent_id, user_id, rating, comment, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, ratingData.agentId, ratingData.userId, ratingData.rating, ratingData.comment, now, now]
-    );
+  if (fs.existsSync(RATINGS_FILE)) {
+    try {
+      const raw = fs.readFileSync(RATINGS_FILE, 'utf-8');
+      ratings = JSON.parse(raw) as UserRating[];
+      console.log(`Agent 评分已加载: ${ratings.length} 条`);
+    } catch (e) {
+      console.warn('加载 Agent 评分失败:', e);
+      ratings = [];
+    }
   } else {
-    // 文件存储方式
-    const ratingsFile = `../data/ratings.json`;
-    const ratings = loadRatingsFromFile();
-    ratings.push({ ...ratingData, id, createdAt: now, updatedAt: now });
-    saveRatingsToFile(ratings);
+    ratings = [];
+  }
+
+  ratingsLoaded = true;
+}
+
+/**
+ * 保存评分数据
+ */
+function saveRatings(): void {
+  try {
+    fs.writeFileSync(RATINGS_FILE, JSON.stringify(ratings, null, 2));
+  } catch (e) {
+    console.error('保存 Agent 评分失败:', e);
+  }
+}
+
+/**
+ * 验证评分数据
+ */
+function validateRating(rating: number, comment?: string): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (rating < 1 || rating > 5) {
+    errors.push('评分必须在 1-5 星之间');
+  }
+
+  if (comment && comment.trim().length > 1000) {
+    errors.push('评论不能超过 1000 个字符');
   }
 
   return {
-    ...ratingData,
-    id,
-    createdAt: now,
-    updatedAt: now,
+    valid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
+ * 创建用户评分
+ */
+export async function createUserRating(
+  agentId: string,
+  userId: string,
+  data: CreateRatingRequest
+): Promise<UserRating> {
+  loadRatings();
+
+  const validation = validateRating(data.rating, data.comment);
+  if (!validation.valid) {
+    throw new Error(`评分验证失败: ${validation.errors.join(', ')}`);
+  }
+
+  // 检查用户是否已经评分过
+  const existingRating = ratings.find(r => r.agentId === agentId && r.userId === userId);
+  if (existingRating) {
+    throw new Error('您已经对此 Agent 评分过了');
+  }
+
+  const rating: UserRating = {
+    id: uuidv4(),
+    agentId,
+    userId,
+    rating: data.rating,
+    comment: data.comment,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'active',
+  };
+
+  ratings.push(rating);
+  saveRatings();
+
+  return rating;
+}
+
+/**
+ * 更新用户评分
+ */
+export async function updateUserRating(
+  ratingId: string,
+  userId: string,
+  data: UpdateRatingRequest
+): Promise<UserRating> {
+  loadRatings();
+
+  const ratingIndex = ratings.findIndex(r => r.id === ratingId && r.userId === userId);
+  if (ratingIndex === -1) {
+    throw new Error('评分不存在或无权修改');
+  }
+
+  const rating = ratings[ratingIndex];
+
+  // 更新评分
+  if (data.rating !== undefined) {
+    const validation = validateRating(data.rating, data.comment);
+    if (!validation.valid) {
+      throw new Error(`评分验证失败: ${validation.errors.join(', ')}`);
+    }
+    rating.rating = data.rating;
+  }
+
+  // 更新评论
+  if (data.comment !== undefined) {
+    rating.comment = data.comment;
+  }
+
+  rating.updatedAt = new Date().toISOString();
+  ratings[ratingIndex] = rating;
+  saveRatings();
+
+  return rating;
+}
+
+/**
+ * 删除用户评分
+ */
+export async function deleteUserRating(ratingId: string, userId: string): Promise<boolean> {
+  loadRatings();
+
+  const ratingIndex = ratings.findIndex(r => r.id === ratingId && r.userId === userId);
+  if (ratingIndex === -1) {
+    return false;
+  }
+
+  ratings.splice(ratingIndex, 1);
+  saveRatings();
+
+  return true;
+}
+
+/**
+ * 获取用户评分
+ */
+export async function getUserRating(agentId: string, userId: string): Promise<UserRating | null> {
+  loadRatings();
+
+  const rating = ratings.find(r => r.agentId === agentId && r.userId === userId);
+  return rating || null;
+}
+
+/**
+ * 获取评分列表
+ */
+export async function getRatings(params: RatingQueryParams): Promise<RatingListResponse> {
+  loadRatings();
+
+  let filteredRatings = [...ratings];
+
+  // 筛选
+  if (params.agentId) {
+    filteredRatings = filteredRatings.filter(r => r.agentId === params.agentId);
+  }
+
+  if (params.userId) {
+    filteredRatings = filteredRatings.filter(r => r.userId === params.userId);
+  }
+
+  if (params.status) {
+    filteredRatings = filteredRatings.filter(r => r.status === params.status);
+  }
+
+  // 排序
+  if (params.sortBy) {
+    filteredRatings.sort((a, b) => {
+      let compareValue = 0;
+
+      switch (params.sortBy) {
+        case 'latest':
+          compareValue = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+          break;
+        case 'highest':
+          compareValue = b.rating - a.rating;
+          break;
+        case 'lowest':
+          compareValue = a.rating - b.rating;
+          break;
+      }
+
+      return params.sortOrder === 'desc' ? compareValue : -compareValue;
+    });
+  } else {
+    // 默认按最新排序
+    filteredRatings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  // 分页
+  const page = params.page || 1;
+  const pageSize = Math.min(params.pageSize || 10, 50);
+  const total = filteredRatings.length;
+  const totalPages = Math.ceil(total / pageSize);
+  const startIndex = (page - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedRatings = filteredRatings.slice(startIndex, endIndex);
+
+  return {
+    ratings: paginatedRatings,
+    total,
+    page,
+    pageSize,
+    totalPages,
   };
 }
 
 /**
  * 获取评分统计
  */
-export async function getRatingStats(agentId: string): Promise<RatingStats | null> {
-  // 验证 Agent 存在
-  const agent = await getAgent(agentId);
-  if (!agent) {
-    throw new Error(`Agent 不存在: ${agentId}`);
-  }
+export async function getRatingStats(agentId: string): Promise<RatingStats> {
+  loadRatings();
 
-  if (usePostgres) {
-    const result = await query(
-      `SELECT
-        AVG(rating) as average_rating,
-        COUNT(*) as total_ratings,
-        jsonb_object_agg(rating, COUNT(*)) as rating_counts
-       FROM ${TABLE_NAME}
-       WHERE agent_id = $1
-       GROUP BY agent_id`,
-      [agentId]
-    );
+  const agentRatings = ratings.filter(r => r.agentId === agentId && r.status === 'active');
 
-    if (result.rows.length === 0) {
-      return null;
-    }
+  const totalRatings = agentRatings.length;
+  const averageRating = totalRatings > 0
+    ? agentRatings.reduce((sum, r) => sum + r.rating, 0) / totalRatings
+    : 0;
 
-    const row = result.rows[0];
-    const ratingCounts: Record<number, number> = {};
+  // 计算评分分布
+  const ratingDistribution = {
+    1: 0,
+    2: 0,
+    3: 0,
+    4: 0,
+    5: 0,
+  };
 
-    // 解析 JSONB 对象
-    if (row.rating_counts) {
-      for (const [rating, count] of Object.entries(row.rating_counts)) {
-        ratingCounts[parseInt(rating)] = count as number;
-      }
-    }
+  agentRatings.forEach(r => {
+    ratingDistribution[r.rating as keyof typeof ratingDistribution]++;
+  });
 
-    // 计算百分比
-    const total = row.total_ratings || 0;
-    const oneStarPercent = total > 0 ? ((ratingCounts[1] || 0) / total) * 100 : 0;
-    const twoStarPercent = total > 0 ? ((ratingCounts[2] || 0) / total) * 100 : 0;
-    const threeStarPercent = total > 0 ? ((ratingCounts[3] || 0) / total) * 100 : 0;
-    const fourStarPercent = total > 0 ? ((ratingCounts[4] || 0) / total) * 100 : 0;
-    const fiveStarPercent = total > 0 ? ((ratingCounts[5] || 0) / total) * 100 : 0;
+  // 获取最新评分
+  const latestRating = agentRatings.length > 0
+    ? agentRatings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]
+    : undefined;
 
-    return {
-      agentId,
-      averageRating: parseFloat(row.average_rating.toFixed(2)),
-      totalRatings: row.total_ratings || 0,
-      ratingCounts,
-      oneStarPercent,
-      twoStarPercent,
-      threeStarPercent,
-      fourStarPercent,
-      fiveStarPercent,
-    };
-  } else {
-    // 文件存储方式
-    const ratings = loadRatingsFromFile();
-    const agentRatings = ratings.filter((r) => r.agentId === agentId);
-
-    if (agentRatings.length === 0) {
-      return null;
-    }
-
-    const ratingCounts: Record<number, number> = {};
-    agentRatings.forEach((r) => {
-      ratingCounts[r.rating] = (ratingCounts[r.rating] || 0) + 1;
-    });
-
-    const total = agentRatings.length;
-    const averageRating =
-      agentRatings.reduce((sum, r) => sum + r.rating, 0) / total;
-
-    return {
-      agentId,
-      averageRating: parseFloat(averageRating.toFixed(2)),
-      totalRatings: total,
-      ratingCounts,
-      oneStarPercent: (ratingCounts[1] || 0) / total,
-      twoStarPercent: (ratingCounts[2] || 0) / total,
-      threeStarPercent: (ratingCounts[3] || 0) / total,
-      fourStarPercent: (ratingCounts[4] || 0) / total,
-      fiveStarPercent: (ratingCounts[5] || 0) / total,
-    };
-  }
+  return {
+    agentId,
+    averageRating: Number(averageRating.toFixed(2)),
+    totalRatings,
+    ratingDistribution,
+    latestRating,
+  };
 }
 
 /**
- * 获取评分历史
+ * 获取所有 Agent 的评分统计
  */
-export async function getRatingHistory(
-  agentId: string,
-  page: number = 1,
-  pageSize: number = 10
-): Promise<RatingHistory> {
-  // 验证 Agent 存在
-  const agent = await getAgent(agentId);
-  if (!agent) {
-    throw new Error(`Agent 不存在: ${agentId}`);
-  }
+export async function getAllAgentsRatingStats(): Promise<RatingStats[]> {
+  loadRatings();
 
-  if (usePostgres) {
-    const offset = (page - 1) * pageSize;
+  // 获取所有唯一的 agentId
+  const agentIds = [...new Set(ratings.map(r => r.agentId))];
 
-    const result = await query(
-      `SELECT * FROM ${TABLE_NAME}
-       WHERE agent_id = $1
-       ORDER BY created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [agentId, pageSize, offset]
-    );
-
-    const totalResult = await query(
-      `SELECT COUNT(*) as total FROM ${TABLE_NAME} WHERE agent_id = $1`,
-      [agentId]
-    );
-
-    return {
-      rating: result.rows.map(mapRow),
-      total: totalResult.rows[0].total,
-      page,
-      pageSize,
-      totalPages: Math.ceil((totalResult.rows[0].total || 0) / pageSize),
-    };
-  } else {
-    // 文件存储方式
-    const ratings = loadRatingsFromFile();
-    const agentRatings = ratings
-      .filter((r) => r.agentId === agentId)
-      .sort((a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-
-    const total = agentRatings.length;
-    const totalPages = Math.ceil(total / pageSize);
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    const paginatedRatings = agentRatings.slice(start, end);
-
-    return {
-      rating: paginatedRatings.map(mapRow),
-      total,
-      page,
-      pageSize,
-      totalPages,
-    };
-  }
+  return Promise.all(
+    agentIds.map(async (agentId) => {
+      return await getRatingStats(agentId);
+    })
+  );
 }
 
 /**
- * 获取评分详情
+ * 禁用评分（管理员功能）
  */
-export async function getRating(ratingId: string): Promise<AgentRating | null> {
-  if (usePostgres) {
-    const result = await query(
-      `SELECT * FROM ${TABLE_NAME} WHERE id = $1`,
-      [ratingId]
-    );
+export async function disableRating(ratingId: string, adminId: string): Promise<UserRating> {
+  loadRatings();
 
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return mapRow(result.rows[0]);
-  } else {
-    const ratings = loadRatingsFromFile();
-    return ratings.find((r) => r.id === ratingId) || null;
+  const rating = ratings.find(r => r.id === ratingId);
+  if (!rating) {
+    throw new Error('评分不存在');
   }
+
+  rating.status = 'disabled';
+  rating.updatedAt = new Date().toISOString();
+  saveRatings();
+
+  return rating;
 }
 
 /**
- * 删除评分
+ * 恢复评分（管理员功能）
  */
-export async function deleteRating(ratingId: string): Promise<boolean> {
-  if (usePostgres) {
-    const result = await query(
-      `DELETE FROM ${TABLE_NAME} WHERE id = $1`,
-      [ratingId]
-    );
-    return (result.rowCount || 0) > 0;
-  } else {
-    const ratings = loadRatingsFromFile();
-    const initialLength = ratings.length;
-    const filteredRatings = ratings.filter((r) => r.id !== ratingId);
-    const deleted = initialLength !== filteredRatings.length;
+export async function restoreRating(ratingId: string, adminId: string): Promise<UserRating> {
+  loadRatings();
 
-    if (deleted) {
-      saveRatingsToFile(filteredRatings);
-    }
-
-    return deleted;
+  const rating = ratings.find(r => r.id === ratingId);
+  if (!rating) {
+    throw new Error('评分不存在');
   }
+
+  rating.status = 'active';
+  rating.updatedAt = new Date().toISOString();
+  saveRatings();
+
+  return rating;
 }
 
 /**
- * 加载评分文件
+ * 删除评分（管理员功能）
  */
-function loadRatingsFromFile(): AgentRating[] {
-  const ratingsFile = '../data/ratings.json';
-  const ratings: AgentRating[] = [];
+export async function adminDeleteRating(ratingId: string, adminId: string): Promise<boolean> {
+  loadRatings();
 
-  if (usePostgres) {
-    return ratings;
+  const ratingIndex = ratings.findIndex(r => r.id === ratingId);
+  if (ratingIndex === -1) {
+    return false;
   }
 
-  try {
-    const fs = require('fs');
-    const path = require('path');
+  ratings.splice(ratingIndex, 1);
+  saveRatings();
 
-    if (fs.existsSync(path.resolve(__dirname, ratingsFile))) {
-      const raw = fs.readFileSync(path.resolve(__dirname, ratingsFile), 'utf-8');
-      const data = JSON.parse(raw) as AgentRating[];
-      for (const r of data) ratings.push(r);
-    }
-  } catch (e) {
-    console.warn('加载评分文件失败:', e);
-  }
-
-  return ratings;
-}
-
-/**
- * 保存评分文件
- */
-function saveRatingsToFile(ratings: AgentRating[]): void {
-  try {
-    const fs = require('fs');
-    const path = require('path');
-
-    if (usePostgres) {
-      return;
-    }
-
-    const ratingsFile = '../data/ratings.json';
-    const filePath = path.resolve(__dirname, ratingsFile);
-
-    // 确保目录存在
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-
-    fs.writeFileSync(
-      filePath,
-      JSON.stringify(ratings, null, 2),
-      'utf-8'
-    );
-  } catch (e) {
-    console.error('保存评分文件失败:', e);
-  }
-}
-
-/**
- * 获取用户对 Agent 的评分（防止重复评分）
- */
-export async function getUserRating(
-  agentId: string,
-  userId: string
-): Promise<AgentRating | null> {
-  if (usePostgres) {
-    const result = await query(
-      `SELECT * FROM ${TABLE_NAME}
-       WHERE agent_id = $1 AND user_id = $2`,
-      [agentId, userId]
-    );
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return mapRow(result.rows[0]);
-  } else {
-    const ratings = loadRatingsFromFile();
-    return ratings.find((r) => r.agentId === agentId && r.userId === userId) || null;
-  }
-}
-
-/**
- * 获取所有评分（管理员功能）
- */
-export async function getAllRatings(): Promise<AgentRating[]> {
-  if (usePostgres) {
-    const result = await query(
-      `SELECT * FROM ${TABLE_NAME} ORDER BY created_at DESC`
-    );
-    return result.rows.map(mapRow);
-  } else {
-    const ratings = loadRatingsFromFile();
-    return ratings.sort((a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-  }
+  return true;
 }

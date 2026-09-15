@@ -1,0 +1,112 @@
+[
+  {
+    "id": "aba77867-d2dd-45ea-98ac-998be8a675ec",
+    "agentId": "agent-1-dup",
+    "userId": "test-user-rating",
+    "rating": 4,
+    "comment": "第一次评分",
+    "createdAt": "2026-09-15T06:40:03.956Z",
+    "updatedAt": "2026-09-15T06:40:03.956Z",
+    "status": "active"
+  },
+  {
+    "id": "8015404a-292f-4978-bcba-9b5b809c6617",
+    "agentId": "agent-pagination",
+    "userId": "user1",
+    "rating": 4,
+    "comment": "测试评论 1",
+    "createdAt": "2026-09-15T06:40:04.282Z",
+    "updatedAt": "2026-09-15T06:40:04.282Z",
+    "status": "active"
+  },
+  {
+    "id": "7c230f1c-81f0-4e51-8e74-9b922ad7d752",
+    "agentId": "agent-pagination",
+    "userId": "user2",
+    "rating": 1,
+    "comment": "测试评论 2",
+    "createdAt": "2026-09-15T06:40:04.283Z",
+    "updatedAt": "2026-09-15T06:40:04.283Z",
+    "status": "active"
+  },
+  {
+    "id": "392961fc-9c5b-4921-8196-e305ab735978",
+    "agentId": "agent-pagination",
+    "userId": "user3",
+    "rating": 3,
+    "comment": "测试评论 3",
+    "createdAt": "2026-09-15T06:40:04.283Z",
+    "updatedAt": "2026-09-15T06:40:04.283Z",
+    "status": "active"
+  },
+  {
+    "id": "6a179a07-f970-40c0-9f69-a1a3cd3e2d3d",
+    "agentId": "agent-pagination",
+    "userId": "user4",
+    "rating": 5,
+    "comment": "测试评论 4",
+    "createdAt": "2026-09-15T06:40:04.284Z",
+    "updatedAt": "2026-09-15T06:40:04.284Z",
+    "status": "active"
+  },
+  {
+    "id": "376bffe8-c6f7-4395-8243-99c4c5907c4c",
+    "agentId": "agent-pagination",
+    "userId": "user5",
+    "rating": 3,
+    "comment": "测试评论 5",
+    "createdAt": "2026-09-15T06:40:04.291Z",
+    "updatedAt": "2026-09-15T06:40:04.291Z",
+    "status": "active"
+  },
+  {
+    "id": "69a4a1d9-8433-445b-9e46-99e8f8a050be",
+    "agentId": "agent-sort-test",
+    "userId": "sort1",
+    "rating": 2,
+    "comment": "较差",
+    "createdAt": "2026-09-15T06:40:04.408Z",
+    "updatedAt": "2026-09-15T06:40:04.408Z",
+    "status": "active"
+  },
+  {
+    "id": "667b9fc2-4dca-410d-be3a-3ad3804648c2",
+    "agentId": "agent-sort-test",
+    "userId": "sort2",
+    "rating": 5,
+    "comment": "优秀",
+    "createdAt": "2026-09-15T06:40:04.408Z",
+    "updatedAt": "2026-09-15T06:40:04.408Z",
+    "status": "active"
+  },
+  {
+    "id": "4954ba48-002f-4808-82b3-1e94f0a739ea",
+    "agentId": "agent-sort-test",
+    "userId": "sort3",
+    "rating": 1,
+    "comment": "很差",
+    "createdAt": "2026-09-15T06:40:04.409Z",
+    "updatedAt": "2026-09-15T06:40:04.409Z",
+    "status": "active"
+  },
+  {
+    "id": "22a28b2a-1f91-4811-b96f-c5fe8e12138f",
+    "agentId": "agent-sort-test",
+    "userId": "sort4",
+    "rating": 4,
+    "comment": "良好",
+    "createdAt": "2026-09-15T06:40:04.416Z",
+    "updatedAt": "2026-09-15T06:40:04.416Z",
+    "status": "active"
+  },
+  {
+    "id": "86e2b174-255b-4ac0-8107-48520ab3ca71",
+    "agentId": "agent-sort-test",
+    "userId": "sort5",
+    "rating": 3,
+    "comment": "一般",
+    "createdAt": "2026-09-15T06:40:04.423Z",
+    "updatedAt": "2026-09-15T06:40:04.423Z",
+    "status": "active"
+  }
+]

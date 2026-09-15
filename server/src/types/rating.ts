@@ -1,60 +1,79 @@
 /**
- * Agent 评分相关类型定义
+ * Agent 评分系统类型定义
  */
 
 /**
- * Agent 评分
+ * 评分状态
  */
-export interface AgentRating {
+export type RatingStatus = 'active' | 'disabled' | 'moderated';
+
+/**
+ * 用户评分
+ */
+export interface UserRating {
   id: string;
   agentId: string;
   userId: string;
-  rating: number; // 1-5 星
+  rating: number; // 1-5星
   comment?: string;
   createdAt: string;
   updatedAt: string;
+  status: RatingStatus;
 }
 
 /**
- * 评分统计信息
+ * 评分统计
  */
 export interface RatingStats {
   agentId: string;
   averageRating: number;
   totalRatings: number;
-  ratingCounts: Record<number, number>; // 每个分数的数量
-  fiveStarPercent: number; // 5星百分比
-  fourStarPercent: number; // 4星百分比
-  threeStarPercent: number; // 3星百分比
-  twoStarPercent: number; // 2星百分比
-  oneStarPercent: number; // 1星百分比
+  ratingDistribution: {
+    1: number;
+    2: number;
+    3: number;
+    4: number;
+    5: number;
+  };
+  latestRating?: UserRating;
 }
 
 /**
- * 评分历史
+ * 评分创建请求
  */
-export interface RatingHistory {
-  rating: AgentRating[];
+export interface CreateRatingRequest {
+  rating: number;
+  comment?: string;
+}
+
+/**
+ * 评分更新请求
+ */
+export interface UpdateRatingRequest {
+  rating?: number;
+  comment?: string;
+}
+
+/**
+ * 评分查询参数
+ */
+export interface RatingQueryParams {
+  agentId?: string;
+  userId?: string;
+  status?: RatingStatus;
+  sortBy?: 'latest' | 'highest' | 'lowest';
+  sortOrder?: 'asc' | 'desc';
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * 评分列表响应
+ */
+export interface RatingListResponse {
+  ratings: UserRating[];
   total: number;
   page: number;
   pageSize: number;
   totalPages: number;
-}
-
-/**
- * 评分响应
- */
-export interface RatingResponse {
-  code: number;
-  message: string;
-  data: AgentRating | RatingStats | RatingHistory;
-}
-
-/**
- * 评分请求
- */
-export interface RatingRequest {
-  agentId: string;
-  rating: number;
-  comment?: string;
 }

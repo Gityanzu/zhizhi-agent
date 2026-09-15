@@ -13,6 +13,7 @@ import {
   codeRoutes, agentsRoutes, customToolsRoutes, workflowsRoutes, dbConnectionsRoutes,
   shareRoutes, importRoutes, apiKeysRoutes, externalApiRoutes, userRoutes,
   authRoutes, userApiKeysRoutes, agentMarketRoutes, ratingRoutes,
+  analyticsRoutes,
 } from './routes';
 import commentRoutes from './routes/comment';
 import searchRoutes from './routes/search';
@@ -94,6 +95,7 @@ app.use('/api/agent-market', agentMarketRoutes);
 app.use('/api/agent-market/ratings', ratingRoutes);
 app.use('/api/agent-market/comments', commentRoutes);
 app.use('/api/agent-market/search', searchRoutes);
+app.use('/api/agent-market/analytics', analyticsRoutes);
 app.use('/api/agent-market/templates', templateMarketRoutes);
 
 // 功能17：分享页面静态服务（server/public 目录）

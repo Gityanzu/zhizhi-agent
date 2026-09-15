@@ -3,123 +3,81 @@
  */
 
 /**
- * 搜索参数
+ * 搜索请求
  */
-export interface SearchParams {
-  query: string;                  // 搜索关键词
-  category?: string;              // 分类筛选
-  model?: string;                 // 模型筛选
-  sortBy?: 'relevance' | 'rating' | 'comments' | 'createdAt' | 'updatedAt'; // 排序方式
-  sortOrder?: 'asc' | 'desc';     // 排序方向
-  page?: number;                  // 页码
-  pageSize?: number;              // 每页数量
+export interface SearchRequest {
+  query?: string; // 搜索关键词
+  category?: string; // 分类筛选
+  tags?: string[]; // 标签筛选
+  sort?: 'latest' | 'popular' | 'highest-rated'; // 排序方式
+  sortOrder?: 'asc' | 'desc'; // 排序顺序
+  page?: number; // 页码
+  pageSize?: number; // 每页大小
 }
 
 /**
- * 搜索统计
- */
-export interface SearchStats {
-  totalAgents: number;            // 总Agent数量
-  totalSearches: number;          // 总搜索次数
-  averageResponseTime: number;    // 平均响应时间(ms)
-  popularSearches: string[];       // 热门搜索词
-}
-
-/**
- * 搜索结果
+ * 搜索结果项
  */
 export interface SearchResult {
-  id: string;
+  agentId: string;
   name: string;
-  avatar: string;
   description: string;
-  systemPrompt: string;
-  model: string;
-  tools: string[];
-  temperature: number;
-  score: number;                  // 相关度得分
-  highlights: string[];            // 高亮片段
-  category: string;               // 分类
-  rating?: number;                // 评分（0-5）
-  commentCount?: number;          // 评论数
-  viewCount?: number;            // 查看次数
-  downloadCount?: number;         // 下载次数
+  avatar?: string;
+  category?: string;
+  tags?: string[];
+  rating?: number;
+  ratingCount?: number;
+  viewCount?: number;
+  templateCount?: number;
   createdAt: string;
-  updatedAt: string;
 }
 
 /**
  * 搜索响应
  */
 export interface SearchResponse {
-  agents: SearchResult[];
+  results: SearchResult[];
   total: number;
   page: number;
   pageSize: number;
   totalPages: number;
-  searchTime: number;            // 搜索耗时(ms)
-  query: string;                  // 原始查询
-  facets?: SearchFacets;          // 搜索聚合信息
+  filters: {
+    categories?: string[];
+    tags?: string[];
+    popularTags?: string[];
+  };
 }
 
 /**
- * 搜索聚合（用于筛选）
+ * 标签推荐请求
  */
-export interface SearchFacets {
-  categories: FacetOption[];      // 分类聚合
-  models: FacetOption[];         // 模型聚合
-  ratingRanges: FacetOption[];    // 评分范围聚合
-  tags: FacetOption[];            // 标签聚合
-}
-
-/**
- * 聚合选项
- */
-export interface FacetOption {
-  value: string;
-  count: number;
-  label: string;
-}
-
-/**
- * 搜索历史
- */
-export interface SearchHistory {
-  id: string;
-  userId: string;
-  query: string;
-  resultsCount: number;
-  createdAt: string;
-}
-
-/**
- * 热门搜索
- */
-export interface PopularSearch {
-  query: string;
-  count: number;
-  trend: 'up' | 'down' | 'stable'; // 趋势
-}
-
-/**
- * 搜索建议
- */
-export interface SearchSuggestion {
-  text: string;
+export interface TagRecommendationRequest {
   category?: string;
-  type: 'query' | 'category' | 'agent'; // 建议类型
+  limit?: number;
 }
 
 /**
- * 搜索日志
+ * 标签推荐响应
  */
-export interface SearchLog {
-  id: string;
-  query: string;
-  userId?: string;
-  resultsCount: number;
-  searchTime: number;
-  ip?: string;
-  userAgent?: string;
-  createdAt: string;
+export interface TagRecommendationResponse {
+  tags: Array<{
+    name: string;
+    count: number;
+    category?: string;
+  }>;
+}
+
+/**
+ * 分类信息
+ */
+export interface CategoryInfo {
+  name: string;
+  count: number;
+}
+
+/**
+ * 分类列表响应
+ */
+export interface CategoryListResponse {
+  categories: CategoryInfo[];
 }

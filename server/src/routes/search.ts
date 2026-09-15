@@ -1,51 +1,52 @@
 import { Router, Request, Response } from 'express';
 import {
   searchAgents,
-  getSearchSuggestions,
-  getPopularSearches,
-  getSearchStats,
-  addSearchHistory,
-  getUserSearchHistory,
-  clearSearchHistory,
+  getCategoryList,
+  getTagRecommendations,
+  getPopularTags,
 } from '../services/search';
-import type { SearchParams, SearchSuggestion, PopularSearch, SearchStats, SearchHistory } from '../types/search';
+import type {
+  SearchRequest,
+  TagRecommendationRequest,
+  CategoryListResponse,
+} from '../types/search';
 
 const router = Router();
 
+// ==================== 全文搜索 ====================
+
 /**
- * 搜索 Agent
- * GET /api/agent-market/search
+ * 搜索 Agents
+ * GET /api/agent-market/search?query=xxx&category=xxx&sort=latest&page=1&pageSize=20
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const {
-      query = '',
-      category,
-      model,
-      sortBy = 'relevance',
-      sortOrder = 'desc',
-      page = 1,
-      pageSize = 10,
-    } = req.query;
+    const query = req.query.query as string;
+    const category = req.query.category as string;
+    const tags = req.query.tags as string;
+    const sort = req.query.sort as 'latest' | 'popular' | 'highest-rated';
+    const sortOrder = req.query.sortOrder as 'asc' | 'desc';
+    const page = parseInt(req.query.page as string) || 1;
+    const pageSize = parseInt(req.query.pageSize as string) || 20;
 
-    // 构建搜索参数
-    const searchParams: SearchParams = {
-      query: query as string,
-      category: category as string,
-      model: model as string,
-      sortBy: sortBy as SearchParams['sortBy'],
-      sortOrder: sortOrder as SearchParams['sortOrder'],
-      page: parseInt(page as string),
-      pageSize: parseInt(pageSize as string),
+    const filters: any = {
+      sortBy: sort || 'latest',
+      sortOrder: sortOrder || 'desc',
+      page,
+      pageSize,
     };
 
-    // 执行搜索
-    const result = await searchAgents(searchParams);
-
-    // 如果有查询词，添加搜索历史（需要用户登录）
-    if (searchParams.query && req.userId) {
-      await addSearchHistory(req.userId, searchParams.query, result.agents.length);
+    // 处理分类筛选
+    if (category && category.trim()) {
+      filters.category = category;
     }
+
+    // 处理标签筛选
+    if (tags && tags.trim()) {
+      filters.tags = tags.split(',').map(t => t.trim()).filter(t => t);
+    }
+
+    const result = await searchAgents(query, filters);
 
     res.json({
       code: 200,
@@ -61,172 +62,89 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// ==================== 分类管理 ====================
+
 /**
- * 获取搜索建议
- * GET /api/agent-market/search/suggestions?q=关键词
+ * 获取分类列表
+ * GET /api/agent-market/search/categories
  */
-router.get('/suggestions', async (req: Request, res: Response) => {
+router.get('/categories', async (req: Request, res: Response) => {
   try {
-    const { q } = req.query;
-
-    if (!q || typeof q !== 'string') {
-      return res.status(400).json({
-        code: 400,
-        message: '查询参数不能为空',
-      });
-    }
-
-    const suggestions = await getSearchSuggestions(q);
+    const result = await getCategoryList();
 
     res.json({
       code: 200,
       message: '获取成功',
-      data: suggestions,
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      message: '获取搜索建议失败',
-      detail: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
-
-/**
- * 获取热门搜索
- * GET /api/agent-market/search/popular
- */
-router.get('/popular', async (req: Request, res: Response) => {
-  try {
-    const popularSearches = await getPopularSearches();
-
-    res.json({
-      code: 200,
-      message: '获取成功',
-      data: popularSearches,
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      message: '获取热门搜索失败',
-      detail: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
-
-/**
- * 获取搜索统计
- * GET /api/agent-market/search/stats
- */
-router.get('/stats', async (req: Request, res: Response) => {
-  try {
-    const stats = await getSearchStats();
-
-    res.json({
-      code: 200,
-      message: '获取成功',
-      data: stats,
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      message: '获取搜索统计失败',
-      detail: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
-
-/**
- * 获取用户搜索历史
- * GET /api/agent-market/search/history
- */
-router.get('/history', async (req: Request, res: Response) => {
-  try {
-    // 需要登录
-    if (!req.userId) {
-      return res.status(401).json({
-        code: 401,
-        message: '请先登录',
-      });
-    }
-
-    const history = await getUserSearchHistory(req.userId);
-
-    res.json({
-      code: 200,
-      message: '获取成功',
-      data: history,
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      message: '获取搜索历史失败',
-      detail: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
-
-/**
- * 清除搜索历史
- * DELETE /api/agent-market/search/history
- */
-router.delete('/history', async (req: Request, res: Response) => {
-  try {
-    // 需要登录
-    if (!req.userId) {
-      return res.status(401).json({
-        code: 401,
-        message: '请先登录',
-      });
-    }
-
-    await clearSearchHistory(req.userId);
-
-    res.json({
-      code: 200,
-      message: '清除成功',
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      message: '清除搜索历史失败',
-      detail: error instanceof Error ? error.message : String(error),
-    });
-  }
-});
-
-/**
- * 高级搜索
- * POST /api/agent-market/search/advanced
- */
-router.post('/advanced', async (req: Request, res: Response) => {
-  try {
-    const searchParams: SearchParams = req.body;
-
-    // 验证必填参数
-    if (!searchParams.query && !searchParams.category) {
-      return res.status(400).json({
-        code: 400,
-        message: '查询条件不能为空',
-      });
-    }
-
-    const result = await searchAgents(searchParams);
-
-    // 添加搜索历史
-    if (searchParams.query && req.userId) {
-      await addSearchHistory(req.userId, searchParams.query, result.agents.length);
-    }
-
-    res.json({
-      code: 200,
-      message: '搜索成功',
       data: result,
     });
   } catch (error) {
     res.status(500).json({
       code: 500,
-      message: '高级搜索失败',
+      message: '获取分类列表失败',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// ==================== 标签推荐 ====================
+
+/**
+ * 获取标签推荐
+ * GET /api/agent-market/search/tags?category=xxx&limit=10
+ */
+router.get('/tags', async (req: Request, res: Response) => {
+  try {
+    const category = req.query.category as string;
+    const limit = parseInt(req.query.limit as string) || 10;
+
+    const options: any = { limit };
+
+    if (category && category.trim()) {
+      options.category = category;
+    }
+
+    const result = await getTagRecommendations(options);
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: '获取标签推荐失败',
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+// ==================== 热门标签 ====================
+
+/**
+ * 获取热门标签（所有 Agents 的热门标签）
+ * GET /api/agent-market/search/popular-tags
+ */
+router.get('/popular-tags', async (req: Request, res: Response) => {
+  try {
+    const agents = await searchAgents('', {
+      page: 1,
+      pageSize: 1000, // 获取足够多的数据
+    });
+
+    const popularTags = getPopularTags(agents.results, 10);
+
+    res.json({
+      code: 200,
+      message: '获取成功',
+      data: {
+        tags: popularTags,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      message: '获取热门标签失败',
       detail: error instanceof Error ? error.message : String(error),
     });
   }

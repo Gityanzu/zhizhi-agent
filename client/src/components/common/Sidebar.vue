@@ -148,7 +148,7 @@
     <div class="sidebar-footer">
       <div class="stats">
         <div class="stat-item">
-          <span class="stat-value">{{ chatStore.documents.length }}</span>
+          <span class="stat-value">{{ (chatStore.documents || []).length }}</span>
           <span class="stat-label">文档</span>
         </div>
         <div class="stat-item">
@@ -297,8 +297,8 @@ const chatStore = useChatStore()
 const uiStore = useUiStore()
 const draggedSessionId = ref<string | null>(null)
 
-const pinnedSessions = computed(() => chatStore.filteredSessions.filter(s => s.isPinned))
-const unpinnedSessions = computed(() => chatStore.filteredSessions.filter(s => !s.isPinned))
+const pinnedSessions = computed(() => (chatStore.filteredSessions || []).filter(s => s.isPinned))
+const unpinnedSessions = computed(() => (chatStore.filteredSessions || []).filter(s => !s.isPinned))
 
 function countOfFolder(folderId: string): number {
   return chatStore.sessions.filter(s => s.folderId === folderId).length
@@ -711,6 +711,7 @@ function handleSelectSession(id: string) {
 .sidebar-footer {
   padding: 12px 16px;
   border-top: 1px solid var(--border-color);
+  margin-top: auto; /* 确保在底部 */
 }
 
 .stats {

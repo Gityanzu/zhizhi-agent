@@ -368,19 +368,44 @@ marked.setOptions({
 })
 
 // 自定义渲染器：为 python/javascript 代码块添加运行按钮
+// 注意：不依赖 marked.js 的原始方法，完全手动生成 HTML
 const renderer = new marked.Renderer()
-const origCodeRenderer = renderer.code.bind(renderer)
-renderer.code = function({ text, lang, escaped }) {
-  const defaultHtml = origCodeRenderer({ text, lang, escaped })
-  const langLower = (lang || '').toLowerCase()
-  if (langLower === 'python' || langLower === 'javascript' || langLower === 'js') {
-    const runBtn = `<button class="code-run-btn" data-lang="${langLower}" data-code-id="">▶ 运行</button>`
-    // 在 pre 标签内插入按钮
-    return defaultHtml.replace('<pre>', `<pre class="code-block-with-run">${runBtn}`)
+
+// 使用 hooks 来拦截代码块的渲染
+renderer.code = function(text: string, lang: string) {
+  try {
+    console.log('🔧 Code renderer called:', { textLength: text?.length, lang })
+    
+    if (!text && text !== '') {
+      console.warn('⚠️ Code block has no text!')
+      return '<pre><code></code></pre>'
+    }
+    
+    // 不转义 HTML，让 DOMPurify 处理
+    const langClass = lang ? `language-${lang}` : ''
+    
+    // 检查是否是 Python 或 JavaScript
+    const langLower = (lang || '').toLowerCase()
+    const isCodeRunSupported = langLower === 'python' || langLower === 'javascript' || langLower === 'js'
+    
+    if (isCodeRunSupported) {
+      const runBtn = `<button class="code-run-btn" data-lang="${langLower}" data-code-id="">▶ 运行</button>`
+      return `<pre class="code-block-with-run">${runBtn}<code class="${langClass}">${text}</code></pre>`
+    }
+    
+    // 其他语言的标准代码块
+    return `<pre><code class="${langClass}">${text}</code></pre>`
+  } catch (error) {
+    console.error('❌ Code renderer error:', error)
+    // 返回最基本的代码块
+    const { text, lang } = arguments[0]
+    return `<pre><code>${text || ''}</code></pre>`
   }
-  return defaultHtml
 }
 marked.use({ renderer } as any)
+
+// 设置 marked 为同步模式（marked 11.x 默认异步）
+marked.setOptions({ async: false })
 
 const renderedContent = computed(() => {
   if (!props.message.content) return ''
@@ -396,13 +421,32 @@ const renderedContent = computed(() => {
   content = content.replace(/\|\|-+\|/g, (match) => {
     return match.replace(/\|/g, '| ')
   })
+  
+  console.log('📝 Markdown content:', content.substring(0, 200))
+  
   // 使用 DOMPurify 净化 HTML，防止 XSS 攻击
-  const rawHtml = marked.parse(content)
+  let rawHtml: string
+  try {
+    // marked.setOptions({ async: false }) 应该让 parse 返回字符串
+    // 但 TypeScript 不知道这个设置，所以强制类型转换
+    rawHtml = marked.parse(content) as string
+  } catch (error) {
+    console.error('❌ marked.parse error:', error)
+    return props.message.content
+  }
+  
+  console.log('⚡ rawHtml length:', rawHtml.length)
+  console.log('⚡ rawHtml preview:', rawHtml.substring(0, 300))
+  
   const sanitized = DOMPurify.sanitize(rawHtml, {
-    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'span', 'div', 'sup'],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'data-ref'],
+    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'span', 'div', 'sup', 'button'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'data-ref', 'data-lang', 'data-code-id'],
   })
-  // 将正文里的 [n] / [来源n] 转为可点击上标引用编号
+  
+  console.log('🛡️ sanitized length:', sanitized.length)
+  console.log('🛡️ sanitized preview:', sanitized.substring(0, 200))
+    
+  // 将正文里的 [n] / [来源 p] 转为可点击上标引用编号
   return sanitized.replace(/\[来源?(\d+)\]/g, (_, num) => {
     const idx = parseInt(num, 10)
     if (!Number.isFinite(idx) || idx < 1) return _

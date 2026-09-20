@@ -29,8 +29,8 @@
             <el-icon :size="20"><Menu /></el-icon>
           </el-button>
           <h1 class="logo">智知</h1>
-          
-          <!-- Agent选择器 -->
+              
+          <!-- Agent 选择器 -->
           <AgentSelector />
         </div>
         
@@ -337,6 +337,7 @@ import DBQueryPanel from '@/components/common/DBQueryPanel.vue'
 import ShareDialog from '@/components/common/ShareDialog.vue'
 import ImportDialog from '@/components/common/ImportDialog.vue'
 import ApiKeyManager from '@/components/settings/ApiKeyManager.vue'
+import ScenarioSelector from '@/components/common/ScenarioSelector.vue'
 import { useChatStore } from '@/stores/chat'
 import { useIsMobile } from '@/composables/useIsMobile'
 import type { SessionInfo } from '@/types'

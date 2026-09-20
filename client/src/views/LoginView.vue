@@ -40,6 +40,12 @@
             >
               登录
             </el-button>
+
+            <div class="forgot-password-link">
+              <el-link type="primary" @click="goToForgotPassword">
+                忘记密码？
+              </el-link>
+            </div>
           </el-form>
         </el-tab-pane>
 
@@ -193,6 +199,10 @@ async function handleRegister() {
     }
   });
 }
+
+function goToForgotPassword() {
+  router.push('/forgot-password');
+}
 </script>
 
 <style scoped>
@@ -263,6 +273,16 @@ async function handleRegister() {
   height: 44px;
   font-size: 16px;
   font-weight: 500;
+}
+
+.forgot-password-link {
+  text-align: center;
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.forgot-password-link .el-link {
+  font-size: 14px;
 }
 
 .login-footer {

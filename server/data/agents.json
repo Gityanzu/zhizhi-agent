@@ -54,5 +54,119 @@
     "temperature": 0.7,
     "createdAt": "2026-09-15T06:04:14.340Z",
     "updatedAt": "2026-09-15T06:04:14.340Z"
+  },
+  {
+    "id": "6b4688df-fb07-4301-9160-6dac94d656d7",
+    "name": "AI编程助手",
+    "avatar": "👨‍💻",
+    "description": "专业的AI编程助手，帮助你编写和优化代码。支持多种编程语言，提供代码调试、重构建议。",
+    "systemPrompt": "你是一个专业的AI编程助手，帮助用户编写和优化代码。",
+    "model": "",
+    "tools": [],
+    "temperature": 0.7,
+    "createdAt": "2026-09-16T03:12:58.372Z",
+    "updatedAt": "2026-09-16T03:12:58.372Z"
+  },
+  {
+    "id": "9416efa7-e8fd-478d-b644-efad1c3d32a3",
+    "name": "智能客服",
+    "avatar": "💁‍♀️",
+    "description": "7x24小时智能客服，快速解答客户问题，提升客户满意度。",
+    "systemPrompt": "你是一个智能客服，帮助解答客户问题。",
+    "model": "",
+    "tools": [],
+    "temperature": 0.7,
+    "createdAt": "2026-09-16T03:12:58.374Z",
+    "updatedAt": "2026-09-16T03:12:58.374Z"
+  },
+  {
+    "id": "041dfa8c-097b-44d2-8712-a89ca9e26196",
+    "name": "数据分析专家",
+    "avatar": "📊",
+    "description": "专业数据分析助手，帮你处理和分析数据，生成可视化报表。",
+    "systemPrompt": "你是一个数据分析专家，帮助用户分析和可视化数据。",
+    "model": "",
+    "tools": [],
+    "temperature": 0.7,
+    "createdAt": "2026-09-16T03:12:58.375Z",
+    "updatedAt": "2026-09-16T03:12:58.375Z"
+  },
+  {
+    "id": "b62269e1-3739-4f4b-9e26-2410fe2ce3f0",
+    "name": "翻译官",
+    "avatar": "🌍",
+    "description": "支持多语言实时翻译，准确翻译各种语言之间的文本和文档。",
+    "systemPrompt": "你是一个专业的翻译官，帮助用户翻译不同语言。",
+    "model": "",
+    "tools": [],
+    "temperature": 0.7,
+    "createdAt": "2026-09-16T03:12:58.380Z",
+    "updatedAt": "2026-09-16T03:12:58.380Z"
+  },
+  {
+    "id": "91775714-5946-4bf4-9046-b4c3caed7453",
+    "name": "创意写作助手",
+    "avatar": "✍️",
+    "description": "激发你的创作灵感，帮你写故事、文章、广告文案等。",
+    "systemPrompt": "你是一个创意写作助手，帮助用户进行创作。",
+    "model": "",
+    "tools": [],
+    "temperature": 0.7,
+    "createdAt": "2026-09-16T03:12:58.387Z",
+    "updatedAt": "2026-09-16T03:12:58.387Z"
+  },
+  {
+    "id": "8d0b377b-9c29-48aa-b3da-019cce6508cc",
+    "name": "代码审查员",
+    "avatar": "🔍",
+    "description": "自动审查代码，发现潜在问题和改进建议，提高代码质量。",
+    "systemPrompt": "你是一个专业的代码审查员，帮助发现代码问题。",
+    "model": "",
+    "tools": [],
+    "temperature": 0.7,
+    "createdAt": "2026-09-16T03:12:58.393Z",
+    "updatedAt": "2026-09-16T03:12:58.393Z"
+  },
+  {
+    "id": "c440b5f4-de05-4af2-9050-ad75109ca887",
+    "name": "周报生成器",
+    "avatar": "📝",
+    "description": "快速生成周报，总结工作成果，让汇报更高效。",
+    "systemPrompt": "你是一个周报生成器，帮助用户快速生成工作周报。",
+    "model": "",
+    "tools": [],
+    "temperature": 0.7,
+    "createdAt": "2026-09-16T03:12:58.399Z",
+    "updatedAt": "2026-09-16T03:12:58.399Z"
+  },
+  {
+    "id": "56d7e36e-528f-4ca8-b7ec-981db7061024",
+    "name": "法律顾问",
+    "avatar": "⚖️",
+    "description": "提供法律咨询和合同审查服务，保障业务合规性。",
+    "systemPrompt": "你是一个法律顾问，帮助用户处理法律事务。",
+    "model": "",
+    "tools": [],
+    "temperature": 0.7,
+    "createdAt": "2026-09-16T03:12:58.406Z",
+    "updatedAt": "2026-09-16T03:12:58.406Z"
+  },
+  {
+    "id": "075534ef-4ef7-4874-9357-5602d8467ebd",
+    "name": "写作助手",
+    "avatar": "✍️",
+    "description": "专业写作助手，帮你润色、扩写、改写各类文章",
+    "systemPrompt": "你是一位专业写作助手。擅长文章润色、扩写、缩写、改写。请根据用户需求输出高质量文本，注意语言流畅、逻辑清晰、结构完整。",
+    "model": "",
+    "tools": [
+      "web_search",
+      "summarize_text"
+    ],
+    "temperature": 0.7,
+    "ratingCount": 0,
+    "viewCount": 0,
+    "templateCount": 0,
+    "createdAt": "2026-09-19T06:36:17.662Z",
+    "updatedAt": "2026-09-19T06:36:17.662Z"
   }
 ]

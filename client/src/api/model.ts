@@ -1,29 +1,30 @@
-import { api } from './request';
+import { api, API_BASE_URL } from './request';
 
 // ===== 模型相关 =====
 export async function getCurrentModel() {
-  const res = await api.get('/model/current');
+  const res = await api.get('/api/model/current');
   return res.data;
 }
 
 export async function getAvailableModels() {
-  const res = await api.get('/model/list');
-  return res.data;
+  const res = await fetch(`${API_BASE_URL}/api/model/list`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  return res.json();
 }
 
 export async function switchModel(model: string, providerId?: string) {
-  const res = await api.post('/model/switch', { model, providerId });
+  const res = await api.post('/api/model/switch', { model, providerId });
   return res.data;
 }
 
 // ===== 多提供商 / Ollama =====
 export async function getProviders() {
-  const res = await api.get('/model/providers');
+  const res = await api.get('/api/model/providers');
   return res.data;
 }
 
 export async function refreshOllamaModels() {
-  const res = await api.post('/model/refresh-ollama');
+  const res = await api.post('/api/model/refresh-ollama');
   return res.data;
 }
 

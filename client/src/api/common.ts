@@ -3,7 +3,7 @@ import type { CodeExecutionResult, DBConnectionData, ShareResult, ApiKeyItem } f
 
 // ===== 代码执行 =====
 export async function executeCode(code: string, language: string): Promise<CodeExecutionResult> {
-  const res = await api.post('/code/execute', { code, language });
+  const res = await api.post('/api/code/execute', { code, language });
   return res.data;
 }
 
@@ -70,15 +70,15 @@ export async function importConversationsApi(source: 'chatgpt' | 'claude', file:
 
 // ===== API Key 管理 =====
 export async function getApiKeysApi(): Promise<{ keys: ApiKeyItem[] }> {
-  const res = await api.get('/api-keys');
+  const res = await api.get('/api/api-keys');
   return res.data;
 }
 
 export async function createApiKeyApi(name: string): Promise<ApiKeyItem> {
-  const res = await api.post('/api-keys', { name });
+  const res = await api.post('/api/api-keys', { name });
   return res.data;
 }
 
 export async function deleteApiKeyApi(id: string) {
-  await api.delete(`/api-keys/${id}`);
+  await api.delete(`/api/api-keys/${id}`);
 }

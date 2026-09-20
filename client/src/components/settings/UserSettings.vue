@@ -157,14 +157,15 @@ import { getUserApiKeys, addUserApiKey, deleteUserApiKey, setDefaultApiKey } fro
 const router = useRouter();
 const authStore = useAuthStore();
 
-const props = defineProps<{ modelValue: boolean }>();
-const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void; (e: 'saved'): void }>();
+const props = withDefaults(defineProps<{
+  defaultTab?: string
+}>(), {
+  defaultTab: 'profile'
+});
+const emit = defineEmits<{ (e: 'close'): void }>();
 
-const visible = ref(props.modelValue);
-watch(() => props.modelValue, v => visible.value = v);
-watch(visible, v => emit('update:modelValue', v));
-
-const activeTab = ref('profile');
+const activeTab = ref(props.defaultTab || 'profile');
+const visible = ref(true);
 const saving = ref(false);
 const exporting = ref(false);
 const importing = ref(false);

@@ -5,12 +5,13 @@
  * - 名称和描述
  * - 触发关键词（用于自动匹配）
  * - 系统提示词（定义角色和行为）
- * - 可用工具列表（限制该Skill能使用的工具）
+ * - 可用工具列表（限制该 Skill 能使用的工具）
  * - 示例对话
  */
 
 import { getLLM } from '../services/llm';
 import { tools, executeTool } from '../services/agent';
+import { usePostgres, query } from '../db';
 import {
   SystemMessage,
   HumanMessage,
@@ -200,6 +201,39 @@ export class SkillManager {
     for (const skill of BUILTIN_SKILLS) {
       this.skills.set(skill.id, skill);
     }
+    
+    // 从数据库加载用户自定义 Skill
+    this.loadCustomSkills().catch((err: any) => console.error('加载自定义 Skill 失败:', err));
+  }
+  
+  // 从数据库加载自定义 Skill
+  private async loadCustomSkills(): Promise<void> {
+    if (!usePostgres) return;
+    
+    try {
+      const result = await query(
+        `SELECT id, name, description, icon, trigger_keywords, system_prompt, allowed_tools, examples
+         FROM skills WHERE is_builtin = false ORDER BY created_at DESC`
+      );
+      
+      for (const row of result.rows) {
+        const skill: SkillDefinition = {
+          id: row.id,
+          name: row.name,
+          description: row.description,
+          icon: row.icon,
+          triggerKeywords: row.trigger_keywords || [],
+          systemPrompt: row.system_prompt,
+          allowedTools: row.allowed_tools || [],
+          examples: row.examples || [],
+        };
+        this.skills.set(skill.id, skill);
+      }
+      
+      console.log(`已加载 ${result.rows.length} 个自定义 Skill`);
+    } catch (error) {
+      console.warn('加载自定义 Skill 失败（可能表不存在）:', error);
+    }
   }
 
   // 获取所有 Skill
@@ -222,7 +256,7 @@ export class SkillManager {
   }
 
   // 根据用户输入自动匹配 Skill
-  matchSkill(userInput: string): SkillDefinition {
+  async matchSkill(userInput: string): Promise<SkillDefinition> {
     const input = userInput.toLowerCase();
     
     // 按触发关键词匹配（关键词多的优先）
@@ -246,6 +280,121 @@ export class SkillManager {
     }
 
     return bestMatch || this.skills.get('general')!;
+  }
+  
+  // 获取或创建自定义 Skill
+  async getOrCreateCustomSkill(userId: string, skillId: string): Promise<SkillDefinition | null> {
+    if (!usePostgres) return null;
+    
+    try {
+      const result = await query(
+        `SELECT s.*, u.username as author_name
+         FROM skills s
+         LEFT JOIN users u ON s.author_id = u.id
+         WHERE s.id = $1 AND s.author_id = $2`,
+        [skillId, userId]
+      );
+      
+      if (result.rows.length === 0) return null;
+      
+      const row = result.rows[0];
+      const skill: SkillDefinition = {
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        icon: row.icon,
+        triggerKeywords: row.trigger_keywords || [],
+        systemPrompt: row.system_prompt,
+        allowedTools: row.allowed_tools || [],
+        examples: row.examples || [],
+      };
+      
+      // 缓存到内存
+      this.skills.set(skill.id, skill);
+      
+      return skill;
+    } catch (error) {
+      console.error('获取自定义 Skill 失败:', error);
+      return null;
+    }
+  }
+  
+  // 保存自定义 Skill
+  async saveCustomSkill(
+    userId: string,
+    data: Omit<SkillDefinition, 'id'> & { id?: string }
+  ): Promise<SkillDefinition> {
+    if (!usePostgres) {
+      throw new Error('数据库未配置');
+    }
+    
+    const now = new Date().toISOString();
+    const skillId = data.id || `custom_${Date.now()}`;
+    
+    try {
+      const result = await query(
+        `INSERT INTO skills (
+          id, user_id, name, description, icon, trigger_keywords, system_prompt, 
+          allowed_tools, examples, is_builtin, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $10)
+        ON CONFLICT (id) DO UPDATE SET
+          name = $3, description = $4, icon = $5, trigger_keywords = $6, 
+          system_prompt = $7, allowed_tools = $8, examples = $9, updated_at = $10
+        RETURNING *`,
+        [
+          skillId,
+          userId,
+          data.name,
+          data.description,
+          data.icon,
+          JSON.stringify(data.triggerKeywords),
+          data.systemPrompt,
+          JSON.stringify(data.allowedTools),
+          JSON.stringify(data.examples),
+          now,
+        ]
+      );
+      
+      const skill: SkillDefinition = {
+        id: result.rows[0].id,
+        name: result.rows[0].name,
+        description: result.rows[0].description,
+        icon: result.rows[0].icon,
+        triggerKeywords: result.rows[0].trigger_keywords || [],
+        systemPrompt: result.rows[0].system_prompt,
+        allowedTools: result.rows[0].allowed_tools || [],
+        examples: result.rows[0].examples || [],
+      };
+      
+      // 更新缓存
+      this.skills.set(skill.id, skill);
+      
+      return skill;
+    } catch (error) {
+      console.error('保存自定义 Skill 失败:', error);
+      throw error;
+    }
+  }
+  
+  // 删除自定义 Skill
+  async deleteCustomSkill(userId: string, skillId: string): Promise<boolean> {
+    if (!usePostgres) return false;
+    
+    try {
+      const result = await query(
+        'DELETE FROM skills WHERE id = $1 AND user_id = $2',
+        [skillId, userId]
+      );
+      
+      if (result.rowCount !== null && result.rowCount > 0) {
+        this.skills.delete(skillId);
+      }
+      
+      return result.rowCount !== null && result.rowCount > 0;
+    } catch (error) {
+      console.error('删除自定义 Skill 失败:', error);
+      return false;
+    }
   }
 
   // 获取 Skill 可用的工具

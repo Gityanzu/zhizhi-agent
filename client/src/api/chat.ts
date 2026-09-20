@@ -155,7 +155,7 @@ export async function streamChat(
 
 // ===== 会话管理 =====
 export async function createSession(title?: string, mode?: string, model?: string): Promise<SessionInfo> {
-  const res = await api.post('/sessions', { title, mode, model });
+  const res = await api.post('/api/sessions', { title, mode, model });
   return res.data;
 }
 
@@ -164,52 +164,52 @@ export async function getSessions(folderId?: string | null, tag?: string): Promi
   if (folderId === null) params.folderId = 'none';
   else if (folderId) params.folderId = folderId;
   if (tag) params.tag = tag;
-  const res = await api.get('/sessions', { params });
-  return res.data.sessions;
+  const res = await api.get('/api/sessions', { params });
+  return res.data?.sessions || [];
 }
 
 export async function getSessionDetail(id: string, branchId?: string) {
-  const res = await api.get(`/sessions/${id}`, { params: branchId ? { branchId } : {} });
+  const res = await api.get(`/api/sessions/${id}`, { params: branchId ? { branchId } : {} });
   return res.data;
 }
 
 export async function deleteSession(id: string) {
-  await api.delete(`/sessions/${id}`);
+  await api.delete(`/api/sessions/${id}`);
 }
 
 export async function clearSession(id: string) {
-  await api.post(`/sessions/${id}/clear`);
+  await api.post(`/api/sessions/${id}/clear`);
 }
 
 // ===== 对话分支 =====
 export async function getBranches(sessionId: string) {
-  const res = await api.get(`/sessions/${sessionId}/branches`);
+  const res = await api.get(`/api/sessions/${sessionId}/branches`);
   return res.data;
 }
 
 export async function switchBranchApi(sessionId: string, branchId: string) {
-  const res = await api.post(`/sessions/${sessionId}/switch-branch`, { branchId });
+  const res = await api.post(`/api/sessions/${sessionId}/switch-branch`, { branchId });
   return res.data;
 }
 
 export async function editMessageApi(messageId: string, content: string) {
-  const res = await api.put(`/sessions/messages/${messageId}`, { content });
+  const res = await api.put(`/api/sessions/messages/${messageId}`, { content });
   return res.data;
 }
 
 // ===== 文件夹 =====
 export async function getFolders() {
-  const res = await api.get('/sessions/folders');
+  const res = await api.get('/api/sessions/folders');
   return res.data;
 }
 
 export async function createFolderApi(name: string, icon?: string) {
-  const res = await api.post('/sessions/folders', { name, icon });
+  const res = await api.post('/api/sessions/folders', { name, icon });
   return res.data;
 }
 
 export async function updateFolderApi(folderId: string, name?: string, icon?: string) {
-  const res = await api.put(`/sessions/folders/${folderId}`, { name, icon });
+  const res = await api.put(`/api/sessions/folders/${folderId}`, { name, icon });
   return res.data;
 }
 

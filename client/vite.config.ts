@@ -12,7 +12,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // 流式接口：SSE配置
+      // 流式接口：SSE 配置
       '/api/chat/stream': {
         target: 'http://localhost:3001',
         changeOrigin: true,
@@ -24,10 +24,11 @@ export default defineConfig({
           });
         },
       },
-      // 普通API接口
+      // 所有 /api 开头的请求都代理到后端
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        rewrite: (path) => path,
       },
     },
   },

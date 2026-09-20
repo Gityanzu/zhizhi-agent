@@ -79,7 +79,7 @@
       <!-- 文档列表 -->
       <div class="doc-list-section">
         <div class="section-header">
-          <span>文档 ({{ chatStore.documents.length }})</span>
+          <span>文档 ({{ (chatStore.documents || []).length }})</span>
           <el-button text @click="chatStore.loadDocuments()">
             <el-icon><Refresh /></el-icon>
             刷新
@@ -88,7 +88,7 @@
 
         <div class="doc-list">
           <div
-            v-for="doc in chatStore.documents"
+            v-for="doc in (chatStore.documents || [])"
             :key="doc.id"
             class="doc-item"
           >
@@ -131,7 +131,7 @@
             </el-button>
           </div>
 
-          <div v-if="chatStore.documents.length === 0" class="empty">
+          <div v-if="(chatStore.documents || []).length === 0" class="empty">
             <el-icon :size="48" color="#c0c4cc"><FolderOpened /></el-icon>
             <p>暂无文档，上传文档后即可进行知识库问答</p>
           </div>
@@ -141,7 +141,7 @@
       <!-- 统计信息 -->
       <div class="stats-section">
         <div class="stat-card">
-          <div class="stat-value">{{ chatStore.documents.length }}</div>
+          <div class="stat-value">{{ (chatStore.documents || []).length }}</div>
           <div class="stat-label">文档总数</div>
         </div>
         <div class="stat-card">

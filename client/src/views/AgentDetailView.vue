@@ -242,29 +242,6 @@ const commentContent = ref('');
 const commentErrors = ref<string[]>([]);
 const commentSort = ref('latest');
 
-// 计算属性
-function isValidRating() {
-  ratingErrors.value = [];
-  if (rating.value === 0) {
-    ratingErrors.value.push('请选择评分');
-  }
-  return ratingErrors.value.length === 0;
-}
-
-function isValidComment() {
-  commentErrors.value = [];
-  if (!commentContent.value.trim()) {
-    commentErrors.value.push('评论内容不能为空');
-  }
-  if (commentContent.value.trim().length < 10) {
-    commentErrors.value.push('评论内容至少需要10个字符');
-  }
-  if (commentContent.value.trim().length > 2000) {
-    commentErrors.value.push('评论内容不能超过2000个字符');
-  }
-  return commentErrors.value.length === 0;
-}
-
 // 初始化
 onMounted(async () => {
   const agentId = route.params.id as string;

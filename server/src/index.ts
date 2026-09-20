@@ -20,6 +20,8 @@ import searchRoutes from './routes/search';
 import templateMarketRoutes from './routes/templateMarket';
 import { initBuiltinTemplates } from './services/prompt';
 import { handleMCPRequest, getMCPServerInfo } from './mcp/server';
+import { initEmailService } from './services/email';
+import { initRedis } from './services/cache';
 
 // 全局存储状态：是否使用 PostgreSQL（从 db.ts 导入）
 export { usePostgres } from './db';
@@ -30,7 +32,9 @@ const app = express();
 // CORS 配置（限制来源）
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:5174',
   'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
   process.env.FRONTEND_URL || '',
 ].filter(Boolean);
 
@@ -66,6 +70,75 @@ app.get('/api/health', (req, res) => {
     modelName: model.name,
     timestamp: new Date().toISOString(),
   });
+});
+
+// 数据库状态检查
+app.get('/api/db/check', async (req, res) => {
+  try {
+    const { query } = await import('./db');
+    const result = await query('SELECT 1 as test');
+    res.json({
+      status: 'connected',
+      database: 'PostgreSQL',
+      version: result.rows[0]?.test ? 'OK' : 'Error',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'disconnected',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Redis 缓存状态
+app.get('/api/cache/status', async (req, res) => {
+  try {
+    const { isRedisAvailable } = await import('./services/cache');
+    const available = isRedisAvailable();
+    res.json({
+      status: available ? 'available' : 'unavailable',
+      mode: available ? 'Redis' : 'Memory',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// 系统统计信息
+app.get('/api/stats/system', async (req, res) => {
+  try {
+    const { query } = await import('./db');
+    
+    // 获取各表记录数
+    const sessionsCount = await query('SELECT COUNT(*) FROM sessions');
+    const messagesCount = await query('SELECT COUNT(*) FROM messages');
+    const usersCount = await query('SELECT COUNT(*) FROM users');
+    const agentsCount = await query('SELECT COUNT(*) FROM agents');
+    
+    res.json({
+      status: 'ok',
+      counts: {
+        sessions: parseInt(sessionsCount.rows[0].count),
+        messages: parseInt(messagesCount.rows[0].count),
+        users: parseInt(usersCount.rows[0].count),
+        agents: parseInt(agentsCount.rows[0].count)
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // API 路由
@@ -148,6 +221,12 @@ async function startServer() {
       console.log('Ollama未运行（可后续在模型下拉中点击刷新）');
     }
   });
+  
+  // 初始化邮件服务（可选）
+  initEmailService();
+  
+  // 初始化 Redis 缓存（可选）
+  initRedis();
   
   // 初始化向量数据库
   try {

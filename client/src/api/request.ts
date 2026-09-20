@@ -23,8 +23,8 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localho
 
 // 统一 axios 实例
 export const api = axios.create({
-  baseURL: '/api',
-  timeout: 300000, // 5分钟，多Agent模式需要较长时间
+  baseURL: '/',  // 使用根路径，通过 Vite 代理
+  timeout: 300000, // 5 分钟，多 Agent 模式需要较长时间
 });
 
 // 请求拦截器：自动带上 Authorization header

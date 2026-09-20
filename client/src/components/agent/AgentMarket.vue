@@ -101,6 +101,7 @@ async function useTemplate(t: AgentTemplate) {
   flex-direction: column;
   gap: 8px;
   transition: all 0.2s;
+  min-height: 180px; /* 统一最小高度 */
 }
 .template-card:hover {
   border-color: var(--primary);
@@ -110,6 +111,8 @@ async function useTemplate(t: AgentTemplate) {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0; /* 头部不压缩 */
+  margin-bottom: 4px;
 }
 .template-avatar { font-size: 28px; }
 .template-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
@@ -117,14 +120,21 @@ async function useTemplate(t: AgentTemplate) {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
-  min-height: 36px;
+  flex-grow: 1; /* 描述区域自动扩展 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3; /* 最多显示 3 行 */
+  -webkit-box-orient: vertical;
+  margin-bottom: 0;
 }
 .template-tools {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  margin-bottom: 8px;
 }
-.use-btn { width: 100%; }
+.use-btn { width: 100%; flex-shrink: 0; }
 .empty {
   text-align: center;
   color: var(--text-secondary);

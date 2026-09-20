@@ -23,6 +23,8 @@ dist-ssr/
 # Data
 data/chroma/
 data/uploads/
+server/data/sessions.json
+server/data/folders.json
 
 # Logs
 logs/

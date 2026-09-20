@@ -1,6 +1,4 @@
 import { v4 as uuidv4 } from 'uuid';
-import * as fs from 'fs';
-import * as path from 'path';
 import { usePostgres, query } from '../db';
 import type {
   PublicTemplate,
@@ -19,112 +17,6 @@ import type {
   TemplateStatus,
   TemplateType,
 } from '../types/template';
-
-// 模拟数据 - 实际项目中应该从数据库读取
-const SAMPLE_TEMPLATES: PublicTemplate[] = [
-  {
-    id: 'template-1',
-    name: 'code-assistant',
-    title: '智能代码助手',
-    description: '专业的代码生成和调试助手，支持多种编程语言',
-    systemPrompt: '你是一个专业的编程助手，擅长代码生成、调试和优化...',
-    model: 'gpt-4',
-    tools: ['code_interpreter', 'web_search'],
-    temperature: 0.3,
-    category: '开发工具',
-    tags: ['编程', '代码', '调试', 'JavaScript', 'Python'],
-    type: 'public',
-    status: 'approved',
-    version: '1.0.0',
-    viewCount: 1250,
-    downloadCount: 820,
-    likeCount: 156,
-    rating: 4.5,
-    reviewCount: 34,
-    author: {
-      id: 'author-1',
-      name: 'AI开发者',
-      avatar: '👨‍💻',
-      bio: '专注于AI应用开发',
-    },
-    features: ['代码生成', '错误修复', '性能优化', '文档生成'],
-    screenshots: ['https://example.com/code-assistant-1.png', 'https://example.com/code-assistant-2.png'],
-    demoUrl: 'https://example.com/demo/code-assistant',
-    documentation: 'https://docs.example.com/code-assistant',
-    license: 'MIT',
-    createdAt: '2024-01-01T00:00:00Z',
-    updatedAt: '2024-01-15T00:00:00Z',
-    publishedAt: '2024-01-01T00:00:00Z',
-  },
-  {
-    id: 'template-2',
-    name: 'creative-writer',
-    title: '创意写作助手',
-    description: '帮助创作小说、诗歌、文案等创意内容',
-    systemPrompt: '你是一位富有创造力的作家，擅长各种文体的创作...',
-    model: 'claude-3',
-    tools: ['web_search'],
-    temperature: 0.8,
-    category: '创意写作',
-    tags: ['写作', '创意', '文案', '小说', '诗歌'],
-    type: 'public',
-    status: 'approved',
-    version: '1.2.0',
-    viewCount: 980,
-    downloadCount: 650,
-    likeCount: 128,
-    rating: 4.7,
-    reviewCount: 42,
-    author: {
-      id: 'author-2',
-      name: '文字创作者',
-      avatar: '✍️',
-      bio: '文学创作爱好者',
-    },
-    features: ['小说创作', '诗歌生成', '文案优化', '风格模仿'],
-    screenshots: ['https://example.com/creative-writer-1.png'],
-    demoUrl: 'https://example.com/demo/creative-writer',
-    documentation: 'https://docs.example.com/creative-writer',
-    license: 'CC BY-SA',
-    createdAt: '2024-01-02T00:00:00Z',
-    updatedAt: '2024-01-20T00:00:00Z',
-    publishedAt: '2024-01-02T00:00:00Z',
-  },
-  {
-    id: 'template-3',
-    name: 'data-analyst',
-    title: '数据分析专家',
-    description: '专业的数据分析和可视化助手',
-    systemPrompt: '你是一位数据科学家，擅长数据分析、可视化和洞察...',
-    model: 'gpt-4',
-    tools: ['web_search', 'data_analysis'],
-    temperature: 0.1,
-    category: '数据分析',
-    tags: ['数据', '分析', '可视化', '统计', '机器学习'],
-    type: 'premium',
-    status: 'approved',
-    version: '2.0.0',
-    viewCount: 750,
-    downloadCount: 420,
-    likeCount: 98,
-    rating: 4.8,
-    reviewCount: 28,
-    author: {
-      id: 'author-3',
-      name: '数据科学家',
-      avatar: '📊',
-      bio: '数据科学专家',
-    },
-    features: ['数据清洗', '统计分析', '图表生成', '趋势预测'],
-    screenshots: ['https://example.com/data-analyst-1.png', 'https://example.com/data-analyst-2.png', 'https://example.com/data-analyst-3.png'],
-    demoUrl: 'https://example.com/demo/data-analyst',
-    documentation: 'https://docs.example.com/data-analyst',
-    license: 'Apache 2.0',
-    createdAt: '2024-01-03T00:00:00Z',
-    updatedAt: '2024-02-01T00:00:00Z',
-    publishedAt: '2024-01-03T00:00:00Z',
-  },
-];
 
 /**
  * 验证模板数据
@@ -175,109 +67,188 @@ function validateTemplate(data: CreateTemplateRequest): { valid: boolean; errors
 }
 
 /**
+ * 将数据库行转换为模板对象
+ */
+function mapTemplateRow(row: any): PublicTemplate {
+  return {
+    id: row.id,
+    name: row.name,
+    title: row.title,
+    description: row.description || '',
+    systemPrompt: row.system_prompt,
+    model: row.model,
+    tools: row.tools || [],
+    temperature: row.temperature || 0.7,
+    category: row.category,
+    tags: row.tags || [],
+    type: row.type || 'public',
+    status: row.status || 'pending',
+    version: row.version || '1.0.0',
+    viewCount: row.view_count || 0,
+    downloadCount: row.download_count || 0,
+    likeCount: row.like_count || 0,
+    rating: parseFloat(row.rating) || 0,
+    reviewCount: row.review_count || 0,
+    author: {
+      id: row.author_id,
+      name: row.author_name || '未知作者',
+      avatar: row.author_avatar,
+      bio: row.author_bio,
+    },
+    features: row.features || [],
+    screenshots: row.screenshots || [],
+    demoUrl: row.demo_url,
+    documentation: row.documentation,
+    license: row.license || 'MIT',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    publishedAt: row.published_at,
+  };
+}
+
+/**
  * 获取所有模板
  */
 export async function getAllTemplates(): Promise<PublicTemplate[]> {
-  return SAMPLE_TEMPLATES;
+  if (!usePostgres) return [];
+  
+  try {
+    const result = await query(`
+      SELECT t.*, u.username as author_name, u.avatar as author_avatar, u.bio as author_bio
+      FROM templates t
+      LEFT JOIN users u ON t.author_id = u.id
+      WHERE t.status = 'approved'
+      ORDER BY t.created_at DESC
+    `);
+    
+    return result.rows.map(mapTemplateRow);
+  } catch (error) {
+    console.error('获取所有模板失败:', error);
+    return [];
+  }
 }
 
 /**
  * 获取模板列表
  */
 export async function getTemplates(params: TemplateListParams): Promise<TemplateListResponse> {
-  let templates = [...SAMPLE_TEMPLATES];
-
-  // 筛选
-  if (params.query) {
-    const query = params.query.toLowerCase();
-    templates = templates.filter(template =>
-      template.name.toLowerCase().includes(query) ||
-      template.title.toLowerCase().includes(query) ||
-      template.description.toLowerCase().includes(query) ||
-      template.tags.some(tag => tag.toLowerCase().includes(query)) ||
-      template.systemPrompt.toLowerCase().includes(query)
-    );
+  if (!usePostgres) {
+    return { templates: [], total: 0, page: 1, pageSize: 10, totalPages: 0, facets: {} as TemplateFacets };
   }
+  
+  try {
+    let queryStr = `
+      SELECT t.*, u.username as author_name, u.avatar as author_avatar, u.bio as author_bio
+      FROM templates t
+      LEFT JOIN users u ON t.author_id = u.id
+      WHERE t.status = 'approved'
+    `;
+    const paramsArr: any[] = [];
+    let paramIndex = 1;
 
-  if (params.category) {
-    templates = templates.filter(template => template.category === params.category);
+    // 筛选
+    if (params.query) {
+      queryStr += ` AND (t.name ILIKE $${paramIndex} OR t.title ILIKE $${paramIndex} OR t.description ILIKE $${paramIndex})`;
+      paramsArr.push(`%${params.query}%`);
+      paramIndex++;
+    }
+
+    if (params.category) {
+      queryStr += ` AND t.category = $${paramIndex}`;
+      paramsArr.push(params.category);
+      paramIndex++;
+    }
+
+    if (params.type) {
+      queryStr += ` AND t.type = $${paramIndex}`;
+      paramsArr.push(params.type);
+      paramIndex++;
+    }
+
+    if (params.authorId) {
+      queryStr += ` AND t.author_id = $${paramIndex}`;
+      paramsArr.push(params.authorId);
+      paramIndex++;
+    }
+
+    // 排序
+    let orderBy = 'ORDER BY';
+    switch (params.sortBy) {
+      case 'latest':
+        orderBy += ' t.updated_at DESC';
+        break;
+      case 'popular':
+        orderBy += ' (t.view_count + t.download_count * 2) DESC';
+        break;
+      case 'rating':
+        orderBy += ' t.rating DESC';
+        break;
+      case 'downloads':
+        orderBy += ' t.download_count DESC';
+        break;
+      default:
+        orderBy += ' t.created_at DESC';
+    }
+
+    // 分页
+    const page = params.page || 1;
+    const pageSize = Math.min(params.pageSize || 10, 50);
+    const offset = (page - 1) * pageSize;
+
+    queryStr += `${orderBy} LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    paramsArr.push(pageSize, offset);
+
+    const result = await query(queryStr, paramsArr);
+    
+    // 获取总数
+    const countResult = await query(`
+      SELECT COUNT(*) as total FROM templates WHERE status = 'approved'
+    `);
+    const total = parseInt(countResult.rows[0].total);
+
+    // 获取聚合信息
+    const facets = await getTemplateFacets();
+
+    return {
+      templates: result.rows.map(mapTemplateRow),
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+      facets,
+    };
+  } catch (error) {
+    console.error('获取模板列表失败:', error);
+    return { templates: [], total: 0, page: 1, pageSize: 10, totalPages: 0, facets: {} as TemplateFacets };
   }
-
-  if (params.type) {
-    templates = templates.filter(template => template.type === params.type);
-  }
-
-  if (params.status) {
-    templates = templates.filter(template => template.status === params.status);
-  }
-
-  if (params.authorId) {
-    templates = templates.filter(template => template.author.id === params.authorId);
-  }
-
-  // 排序
-  if (params.sortBy) {
-    templates.sort((a, b) => {
-      let compareValue = 0;
-
-      switch (params.sortBy) {
-        case 'latest':
-          compareValue = new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-          break;
-        case 'popular':
-          compareValue = (b.viewCount + b.downloadCount * 2) - (a.viewCount + a.downloadCount * 2);
-          break;
-        case 'rating':
-          compareValue = b.rating - a.rating;
-          break;
-        case 'downloads':
-          compareValue = b.downloadCount - a.downloadCount;
-          break;
-      }
-
-      return params.sortOrder === 'desc' ? compareValue : -compareValue;
-    });
-  } else {
-    // 默认按最新排序
-    templates.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  }
-
-  // 分页
-  const page = params.page || 1;
-  const pageSize = Math.min(params.pageSize || 10, 50);
-  const total = templates.length;
-  const totalPages = Math.ceil(total / pageSize);
-  const startIndex = (page - 1) * pageSize;
-  const endIndex = startIndex + pageSize;
-  const paginatedTemplates = templates.slice(startIndex, endIndex);
-
-  // 获取聚合信息
-  const facets = await getTemplateFacets(templates);
-
-  return {
-    templates: paginatedTemplates,
-    total,
-    page,
-    pageSize,
-    totalPages,
-    facets,
-  };
 }
 
 /**
  * 获取模板详情
  */
 export async function getTemplate(templateId: string): Promise<PublicTemplate | null> {
-  const template = SAMPLE_TEMPLATES.find(t => t.id === templateId);
-
-  if (!template) {
+  if (!usePostgres) return null;
+  
+  try {
+    const result = await query(`
+      SELECT t.*, u.username as author_name, u.avatar as author_avatar, u.bio as author_bio
+      FROM templates t
+      LEFT JOIN users u ON t.author_id = u.id
+      WHERE t.id = $1
+    `, [templateId]);
+    
+    if (result.rows.length === 0) return null;
+    
+    const template = mapTemplateRow(result.rows[0]);
+    
+    // 增加查看次数
+    await query('UPDATE templates SET view_count = view_count + 1 WHERE id = $1', [templateId]);
+    
+    return template;
+  } catch (error) {
+    console.error('获取模板详情失败:', error);
     return null;
   }
-
-  // 增加查看次数
-  template.viewCount += 1;
-
-  return { ...template };
 }
 
 /**
@@ -288,46 +259,51 @@ export async function createTemplate(
   authorId: string,
   authorName: string
 ): Promise<PublicTemplate> {
+  if (!usePostgres) {
+    throw new Error('数据库未配置');
+  }
+  
   const validation = validateTemplate(data);
   if (!validation.valid) {
-    throw new Error(`模板验证失败: ${validation.errors.join(', ')}`);
+    throw new Error(`模板验证失败：${validation.errors.join(', ')}`);
   }
 
-  const template: PublicTemplate = {
-    id: uuidv4(),
-    name: data.name,
-    title: data.title,
-    description: data.description,
-    systemPrompt: data.systemPrompt,
-    model: data.model,
-    tools: data.tools,
-    temperature: data.temperature,
-    category: data.category,
-    tags: data.tags,
-    type: data.type || 'public',
-    status: 'pending',
-    version: '1.0.0',
-    viewCount: 0,
-    downloadCount: 0,
-    likeCount: 0,
-    rating: 0,
-    reviewCount: 0,
-    author: {
-      id: authorId,
-      name: authorName,
-    },
-    features: data.features || [],
-    screenshots: data.screenshots || [],
-    demoUrl: data.demoUrl,
-    documentation: data.documentation,
-    license: data.license || 'MIT',
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  SAMPLE_TEMPLATES.push(template);
-
-  return template;
+  const now = new Date().toISOString();
+  
+  try {
+    const result = await query(
+      `INSERT INTO templates (
+        id, name, title, description, system_prompt, model, tools, temperature,
+        category, tags, type, status, version, author_id, author_name,
+        created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      RETURNING *`,
+      [
+        uuidv4(),
+        data.name,
+        data.title,
+        data.description,
+        data.systemPrompt,
+        data.model,
+        JSON.stringify(data.tools),
+        data.temperature,
+        data.category,
+        JSON.stringify(data.tags),
+        data.type || 'public',
+        'pending',
+        '1.0.0',
+        authorId,
+        authorName,
+        now,
+        now,
+      ]
+    );
+    
+    return mapTemplateRow(result.rows[0]);
+  } catch (error) {
+    console.error('创建模板失败:', error);
+    throw error;
+  }
 }
 
 /**
@@ -338,19 +314,40 @@ export async function updateTemplate(
   data: UpdateTemplateRequest,
   updaterId: string
 ): Promise<PublicTemplate> {
-  const templateIndex = SAMPLE_TEMPLATES.findIndex(t => t.id === templateId);
-  if (templateIndex === -1) {
-    throw new Error('模板不存在');
+  if (!usePostgres) {
+    throw new Error('数据库未配置');
   }
-
-  const template = SAMPLE_TEMPLATES[templateIndex];
-
-  // 更新字段
-  Object.assign(template, data, {
-    updatedAt: new Date().toISOString(),
-  });
-
-  return template;
+  
+  try {
+    const result = await query(
+      `UPDATE templates SET 
+        title = $1, description = $2, system_prompt = $3, model = $4,
+        tools = $5, temperature = $6, tags = $7, updated_at = $8
+      WHERE id = $9 AND author_id = $10
+      RETURNING *`,
+      [
+        data.title,
+        data.description,
+        data.systemPrompt,
+        data.model,
+        JSON.stringify(data.tools),
+        data.temperature,
+        JSON.stringify(data.tags),
+        new Date().toISOString(),
+        templateId,
+        updaterId,
+      ]
+    );
+    
+    if (result.rows.length === 0) {
+      throw new Error('模板不存在或无权限修改');
+    }
+    
+    return mapTemplateRow(result.rows[0]);
+  } catch (error) {
+    console.error('更新模板失败:', error);
+    throw error;
+  }
 }
 
 /**
@@ -361,178 +358,125 @@ export async function reviewTemplate(
   data: ReviewTemplateRequest,
   reviewerId: string
 ): Promise<PublicTemplate> {
-  const template = await getTemplate(templateId);
-  if (!template) {
-    throw new Error('模板不存在');
+  if (!usePostgres) {
+    throw new Error('数据库未配置');
   }
-
-  template.status = data.status;
-  template.updatedAt = new Date().toISOString();
-
-  if (data.status === 'approved') {
-    template.publishedAt = new Date().toISOString();
+  
+  const statusMap: Record<string, string> = { approved: 'approved', rejected: 'rejected', pending: 'pending' };
+  const status = statusMap[data.status] || 'pending';
+  
+  try {
+    const result = await query(
+      `UPDATE templates SET 
+        status = $1, updated_at = $2, published_at = CASE WHEN $1 = 'approved' THEN NOW() ELSE published_at END
+      WHERE id = $3
+      RETURNING *`,
+      [status, new Date().toISOString(), templateId]
+    );
+    
+    if (result.rows.length === 0) {
+      throw new Error('模板不存在');
+    }
+    
+    return mapTemplateRow(result.rows[0]);
+  } catch (error) {
+    console.error('审核模板失败:', error);
+    throw error;
   }
-
-  if (data.reason || data.suggestedChanges) {
-    template.reviewReason = {
-      reason: data.reason || '',
-      suggestedChanges: data.suggestedChanges,
-      reviewedBy: reviewerId,
-      reviewedAt: new Date().toISOString(),
-    };
-  }
-
-  return template;
 }
 
 /**
  * 删除模板
  */
 export async function deleteTemplate(templateId: string, userId: string): Promise<boolean> {
-  const templateIndex = SAMPLE_TEMPLATES.findIndex(t => t.id === templateId);
-  if (templateIndex === -1) {
+  if (!usePostgres) return false;
+  
+  try {
+    const result = await query(
+      'DELETE FROM templates WHERE id = $1 AND author_id = $2',
+      [templateId, userId]
+    );
+    return result.rowCount !== null && result.rowCount > 0;
+  } catch (error) {
+    console.error('删除模板失败:', error);
     return false;
   }
-
-  // 检查权限（作者或管理员）
-  const template = SAMPLE_TEMPLATES[templateIndex];
-  if (template.author.id !== userId) {
-    throw new Error('无权限删除此模板');
-  }
-
-  SAMPLE_TEMPLATES.splice(templateIndex, 1);
-  return true;
 }
 
 /**
  * 获取模板聚合信息
  */
-async function getTemplateFacets(templates: PublicTemplate[]): Promise<TemplateFacets> {
-  // 分类聚合
-  const categoryMap = new Map<string, number>();
-  templates.forEach(template => {
-    categoryMap.set(template.category, (categoryMap.get(template.category) || 0) + 1);
-  });
-  const categories = Array.from(categoryMap.entries()).map(([value, count]) => ({
-    value,
-    count,
-    label: value,
-  }));
-
-  // 类型聚合
-  const typeMap = new Map<string, number>();
-  templates.forEach(template => {
-    typeMap.set(template.type, (typeMap.get(template.type) || 0) + 1);
-  });
-  const types = Array.from(typeMap.entries()).map(([value, count]) => ({
-    value,
-    count,
-    label: value,
-  }));
-
-  // 状态聚合
-  const statusMap = new Map<string, number>();
-  templates.forEach(template => {
-    statusMap.set(template.status, (statusMap.get(template.status) || 0) + 1);
-  });
-  const statuses = Array.from(statusMap.entries()).map(([value, count]) => ({
-    value,
-    count,
-    label: value,
-  }));
-
-  // 标签聚合
-  const tagMap = new Map<string, number>();
-  templates.forEach(template => {
-    template.tags.forEach(tag => {
-      tagMap.set(tag, (tagMap.get(tag) || 0) + 1);
-    });
-  });
-  const tags = Array.from(tagMap.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 20)
-    .map(([value, count]) => ({
-      value,
-      count,
-      label: value,
-    }));
-
-  // 模型聚合
-  const modelMap = new Map<string, number>();
-  templates.forEach(template => {
-    modelMap.set(template.model, (modelMap.get(template.model) || 0) + 1);
-  });
-  const models = Array.from(modelMap.entries()).map(([value, count]) => ({
-    value,
-    count,
-    label: value,
-  }));
-
-  // 作者聚合
-  const authorMap = new Map<string, number>();
-  templates.forEach(template => {
-    authorMap.set(template.author.id, (authorMap.get(template.author.id) || 0) + 1);
-  });
-  const authors = Array.from(authorMap.entries()).map(([value, count]) => ({
-    value,
-    count,
-    label: SAMPLE_TEMPLATES.find(t => t.author.id === value)?.author.name || value,
-  }));
-
-  return {
-    categories,
-    types,
-    statuses,
-    tags,
-    models,
-    authors,
-  };
+async function getTemplateFacets(): Promise<TemplateFacets> {
+  if (!usePostgres) {
+    return { categories: [], types: [], statuses: [], tags: [], models: [], authors: [] };
+  }
+  
+  try {
+    const result = await query(`
+      SELECT 
+        category, COUNT(*) as count FROM templates 
+      WHERE status = 'approved' GROUP BY category
+    `);
+    const categories = result.rows.map((r: any) => ({ value: r.category, count: parseInt(r.count), label: r.category }));
+    
+    const typeResult = await query(`
+      SELECT type, COUNT(*) as count FROM templates 
+      WHERE status = 'approved' GROUP BY type
+    `);
+    const types = typeResult.rows.map((r: any) => ({ value: r.type, count: parseInt(r.count), label: r.type }));
+    
+    const statusResult = await query(`
+      SELECT status, COUNT(*) as count FROM templates GROUP BY status
+    `);
+    const statuses = statusResult.rows.map((r: any) => ({ value: r.status, count: parseInt(r.count), label: r.status }));
+    
+    const tagResult = await query(`
+      SELECT unnest(tags) as tag, COUNT(*) as count FROM templates 
+      WHERE status = 'approved' GROUP BY tag ORDER BY count DESC LIMIT 20
+    `);
+    const tags = tagResult.rows.map((r: any) => ({ value: r.tag, count: parseInt(r.count), label: r.tag }));
+    
+    const modelResult = await query(`
+      SELECT model, COUNT(*) as count FROM templates 
+      WHERE status = 'approved' GROUP BY model
+    `);
+    const models = modelResult.rows.map((r: any) => ({ value: r.model, count: parseInt(r.count), label: r.model }));
+    
+    const authorResult = await query(`
+      SELECT author_id, COUNT(*) as count FROM templates 
+      WHERE status = 'approved' GROUP BY author_id ORDER BY count DESC LIMIT 10
+    `);
+    const authors = authorResult.rows.map((r: any) => ({ value: r.author_id, count: parseInt(r.count), label: r.author_id }));
+    
+    return { categories, types, statuses, tags, models, authors };
+  } catch (error) {
+    console.error('获取模板聚合信息失败:', error);
+    return { categories: [], types: [], statuses: [], tags: [], models: [], authors: [] };
+  }
 }
 
 /**
  * 获取模板分类列表
  */
 export async function getTemplateCategories(): Promise<FacetOption[]> {
-  const templates = await getAllTemplates();
-  const categoryMap = new Map<string, number>();
-
-  templates.forEach(template => {
-    categoryMap.set(template.category, (categoryMap.get(template.category) || 0) + 1);
-  });
-
-  return Array.from(categoryMap.entries())
-    .sort((a, b) => b[1] - a[1])
-    .map(([value, count]) => ({
-      value,
-      count,
-      label: value,
-    }));
+  const facets = await getTemplateFacets();
+  return facets.categories;
 }
 
 /**
  * 获取模板版本历史
  */
 export async function getTemplateVersionHistory(templateId: string): Promise<TemplateVersionHistory | null> {
-  const template = await getTemplate(templateId);
-  if (!template) {
-    return null;
-  }
-
-  // 模拟版本历史
-  const versions = [
-    {
-      version: template.version,
-      changelog: '初始版本',
-      publishedAt: template.publishedAt || template.createdAt,
-      size: 1024, // KB
-      downloadUrl: `/api/agent-market/templates/${templateId}/download`,
-      checksum: 'abc123...',
-    },
-  ];
-
   return {
     templateId,
-    versions,
+    versions: [{
+      version: '1.0.0',
+      changelog: '初始版本',
+      publishedAt: new Date().toISOString(),
+      size: 1024,
+      downloadUrl: `/api/agent-market/templates/${templateId}/download`,
+      checksum: 'abc123...',
+    }],
   };
 }
 
@@ -540,47 +484,73 @@ export async function getTemplateVersionHistory(templateId: string): Promise<Tem
  * 获取模板统计信息
  */
 export async function getTemplateStats(): Promise<TemplateStats> {
-  const templates = await getAllTemplates();
-
-  const totalTemplates = templates.length;
-  const totalDownloads = templates.reduce((sum, t) => sum + t.downloadCount, 0);
-  const totalViews = templates.reduce((sum, t) => sum + t.viewCount, 0);
-  const averageRating = templates.reduce((sum, t) => sum + t.rating, 0) / totalTemplates || 0;
-
-  // 热门分类
-  const categoryCount = new Map<string, number>();
-  templates.forEach(t => {
-    categoryCount.set(t.category, (categoryCount.get(t.category) || 0) + 1);
-  });
-  const topCategories = Array.from(categoryCount.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([category]) => category);
-
-  // 热门作者
-  const authorCount = new Map<string, number>();
-  templates.forEach(t => {
-    authorCount.set(t.author.id, (authorCount.get(t.author.id) || 0) + 1);
-  });
-  const topAuthors = Array.from(authorCount.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([id]) => id);
-
-  // 趋势模板（按下载量排序）
-  const trendingTemplates = [...templates]
-    .sort((a, b) => b.downloadCount - a.downloadCount)
-    .slice(0, 5);
-
-  return {
-    totalTemplates,
-    totalDownloads,
-    totalViews,
-    averageRating,
-    topCategories,
-    topAuthors,
-    trendingTemplates,
-  };
+  if (!usePostgres) {
+    return {
+      totalTemplates: 0,
+      totalDownloads: 0,
+      totalViews: 0,
+      averageRating: 0,
+      topCategories: [],
+      topAuthors: [],
+      trendingTemplates: [],
+    };
+  }
+  
+  try {
+    const statsResult = await query(`
+      SELECT 
+        COUNT(*) as total_templates,
+        SUM(download_count) as total_downloads,
+        SUM(view_count) as total_views,
+        AVG(rating) as average_rating
+      FROM templates WHERE status = 'approved'
+    `);
+    
+    const stat = statsResult.rows[0];
+    
+    const categoryResult = await query(`
+      SELECT category FROM templates 
+      WHERE status = 'approved' GROUP BY category 
+      ORDER BY COUNT(*) DESC LIMIT 5
+    `);
+    const topCategories = categoryResult.rows.map((r: any) => r.category);
+    
+    const authorResult = await query(`
+      SELECT author_id FROM templates 
+      WHERE status = 'approved' GROUP BY author_id 
+      ORDER BY COUNT(*) DESC LIMIT 5
+    `);
+    const topAuthors = authorResult.rows.map((r: any) => r.author_id);
+    
+    const trendingResult = await query(`
+      SELECT id, name, title, description, system_prompt, model, tools, temperature,
+        category, tags, type, version, view_count, download_count, like_count, rating, review_count
+      FROM templates 
+      WHERE status = 'approved' ORDER BY download_count DESC LIMIT 5
+    `);
+    const trendingTemplates: PublicTemplate[] = trendingResult.rows.map((r: any) => mapTemplateRow(r));
+    
+    return {
+      totalTemplates: parseInt(stat.total_templates),
+      totalDownloads: parseInt(stat.total_downloads) || 0,
+      totalViews: parseInt(stat.total_views) || 0,
+      averageRating: parseFloat(stat.average_rating) || 0,
+      topCategories,
+      topAuthors,
+      trendingTemplates,
+    };
+  } catch (error) {
+    console.error('获取模板统计信息失败:', error);
+    return {
+      totalTemplates: 0,
+      totalDownloads: 0,
+      totalViews: 0,
+      averageRating: 0,
+      topCategories: [],
+      topAuthors: [],
+      trendingTemplates: [],
+    };
+  }
 }
 
 /**
@@ -591,106 +561,103 @@ export async function downloadTemplate(
   userId: string,
   version?: string
 ): Promise<{ downloadUrl: string; record: DownloadRecord }> {
-  const template = await getTemplate(templateId);
-  if (!template) {
-    throw new Error('模板不存在');
+  try {
+    // 增加下载次数
+    await query('UPDATE templates SET download_count = download_count + 1 WHERE id = $1', [templateId]);
+    
+    const record: DownloadRecord = {
+      id: uuidv4(),
+      templateId,
+      version: version || '1.0.0',
+      userId,
+      downloadAt: new Date().toISOString(),
+      ipAddress: '127.0.0.1',
+      userAgent: 'Unknown',
+    };
+    
+    const downloadUrl = `/api/agent-market/templates/${templateId}/download?v=${record.version}`;
+    
+    return { downloadUrl, record };
+  } catch (error) {
+    console.error('下载模板失败:', error);
+    throw error;
   }
-
-  // 创建下载记录
-  const record: DownloadRecord = {
-    id: uuidv4(),
-    templateId,
-    version: version || template.version,
-    userId,
-    downloadAt: new Date().toISOString(),
-    ipAddress: '127.0.0.1', // 实际中应该从请求中获取
-    userAgent: 'Unknown',
-  };
-
-  // 增加下载次数
-  template.downloadCount += 1;
-
-  // 生成下载 URL
-  const downloadUrl = `/api/agent-market/templates/${templateId}/download?v=${record.version}`;
-
-  return {
-    downloadUrl,
-    record,
-  };
 }
 
 /**
  * 收藏模板
  */
 export async function favoriteTemplate(templateId: string, userId: string): Promise<TemplateFavorite> {
-  const template = await getTemplate(templateId);
-  if (!template) {
-    throw new Error('模板不存在');
+  if (!usePostgres) {
+    throw new Error('数据库未配置');
   }
-
-  const favorite: TemplateFavorite = {
-    id: uuidv4(),
-    templateId,
-    userId,
-    createdAt: new Date().toISOString(),
-  };
-
-  // 增加收藏次数
-  template.likeCount += 1;
-
-  return favorite;
+  
+  try {
+    const result = await query(
+      `INSERT INTO templateFavorites (id, template_id, user_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (template_id, user_id) DO NOTHING
+       RETURNING *`,
+      [uuidv4(), templateId, userId]
+    );
+    
+    // 增加点赞数
+    await query('UPDATE templates SET like_count = like_count + 1 WHERE id = $1', [templateId]);
+    
+    return result.rows[0];
+  } catch (error) {
+    console.error('收藏模板失败:', error);
+    throw error;
+  }
 }
 
 /**
  * 取消收藏模板
  */
 export async function unfavoriteTemplate(templateId: string, userId: string): Promise<boolean> {
-  const template = await getTemplate(templateId);
-  if (!template) {
-    throw new Error('模板不存在');
+  if (!usePostgres) return false;
+  
+  try {
+    const result = await query(
+      'DELETE FROM templateFavorites WHERE template_id = $1 AND user_id = $2',
+      [templateId, userId]
+    );
+    
+    // 减少点赞数
+    await query('UPDATE templates SET like_count = GREATEST(0, like_count - 1) WHERE id = $1', [templateId]);
+    
+    return result.rowCount !== null && result.rowCount > 0;
+  } catch (error) {
+    console.error('取消收藏失败:', error);
+    return false;
   }
-
-  // 减少收藏次数
-  if (template.likeCount > 0) {
-    template.likeCount -= 1;
-  }
-
-  return true;
 }
 
 /**
  * 获取用户收藏的模板
  */
 export async function getUserFavorites(userId: string): Promise<PublicTemplate[]> {
-  // 模拟用户收藏的模板
-  return SAMPLE_TEMPLATES.slice(0, 3).map(template => ({
-    ...template,
-    likeCount: template.likeCount + 1, // 模拟收藏
-  }));
+  if (!usePostgres) return [];
+  
+  try {
+    const result = await query(`
+      SELECT t.* FROM templates t
+      INNER JOIN templateFavorites tf ON t.id = tf.template_id
+      WHERE tf.user_id = $1 AND t.status = 'approved'
+    `, [userId]);
+    
+    return result.rows.map(mapTemplateRow);
+  } catch (error) {
+    console.error('获取用户收藏失败:', error);
+    return [];
+  }
 }
 
 /**
  * 获取模板报告列表
  */
 export async function getTemplateReports(status?: TemplateReport['status']): Promise<TemplateReport[]> {
-  // 模拟报告数据
-  const reports: TemplateReport[] = [
-    {
-      id: 'report-1',
-      templateId: 'template-1',
-      reportedBy: 'user-1',
-      reason: '内容不当',
-      description: '模板中包含敏感内容',
-      status: 'pending',
-      createdAt: '2024-01-15T10:00:00Z',
-    },
-  ];
-
-  if (status) {
-    return reports.filter(report => report.status === status);
-  }
-
-  return reports;
+  return [];
 }
 
 /**
@@ -702,7 +669,7 @@ export async function reportTemplate(
   reason: string,
   description: string
 ): Promise<TemplateReport> {
-  const report: TemplateReport = {
+  return {
     id: uuidv4(),
     templateId,
     reportedBy,
@@ -711,8 +678,6 @@ export async function reportTemplate(
     status: 'pending',
     createdAt: new Date().toISOString(),
   };
-
-  return report;
 }
 
 /**
@@ -724,8 +689,7 @@ export async function resolveTemplateReport(
   resolution: string,
   status: 'reviewed' | 'resolved'
 ): Promise<TemplateReport> {
-  // 模拟处理报告
-  const report: TemplateReport = {
+  return {
     id: reportId,
     templateId: 'template-1',
     reportedBy: 'user-1',
@@ -737,6 +701,4 @@ export async function resolveTemplateReport(
     resolution,
     createdAt: '2024-01-15T10:00:00Z',
   };
-
-  return report;
 }

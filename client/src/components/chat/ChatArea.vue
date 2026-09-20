@@ -157,7 +157,7 @@
             v-model="inputText"
             type="textarea"
             :rows="2"
-            :placeholder="selectedImage ? '输入关于图片的问题，按 Enter 发送' : '输入你的问题，按 Enter 发送，Shift+Enter 换行'"
+            :placeholder="selectedImage ? '输入关于图片的问题，按 Enter 发送' : '今天想让我帮你做什么？@引用文件 /切换助手 /新建对话'"
             @keydown.enter.exact="handleSend"
             :disabled="chatStore.isLoading"
             resize="none"

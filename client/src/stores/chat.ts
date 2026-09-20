@@ -228,7 +228,7 @@ export const useChatStore = defineStore('chat', () => {
   // 全部会话中出现的标签
   const allTags = computed(() => {
     const set = new Set<string>();
-    for (const s of sessions.value) {
+    for (const s of sessions.value || []) {
       for (const t of (s.tags || [])) set.add(t);
     }
     return Array.from(set);
@@ -243,15 +243,24 @@ export const useChatStore = defineStore('chat', () => {
   async function loadModelInfo() {
     try {
       const [current, available, prov] = await Promise.all([
-        getCurrentModel(),
-        getAvailableModels(),
+        getCurrentModel().catch(() => ({ model: null })),
+        getAvailableModels().catch(() => ({ models: [], groups: [] })),
         apiGetProviders().catch(() => ({ providers: [], ollamaAvailable: false })),
       ]);
-      currentModel.value = current.model;
-      availableModels.value = available.models;
-      modelGroups.value = available.groups || [];
+      
+      console.log('🔍 Model info loaded:', { current, available, prov });
+      
+      currentModel.value = current?.model || null;
+      availableModels.value = available?.models || [];
+      modelGroups.value = available?.groups || [];
       providers.value = prov.providers || [];
       ollamaAvailable.value = !!prov.ollamaAvailable;
+      
+      console.log('✅ Models loaded:', {
+        current: currentModel.value,
+        count: availableModels.value.length,
+        groups: modelGroups.value.length
+      });
     } catch (e) {
       console.error('加载模型信息失败:', e);
     }
@@ -409,10 +418,10 @@ export const useChatStore = defineStore('chat', () => {
   async function loadSkills() {
     try {
       const result = await getSkills();
-      skills.value = result.skills;
-      activeSkill.value = result.skills.find((s: SkillInfo) => s.isActive) || result.skills[result.skills.length - 1];
+      skills.value = result.skills || [];
+      activeSkill.value = result.skills?.find((s: SkillInfo) => s.isActive) || result.skills?.[result.skills.length - 1] || null;
     } catch (e) {
-      console.error('加载Skill列表失败:', e);
+      console.error('加载 Skill 列表失败:', e);
     }
   }
 

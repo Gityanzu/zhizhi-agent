@@ -1,11 +1,10 @@
-import { getAgents, getAgent } from './customAgent';
+import { getAllAgents, getAgent } from './customAgent';
 import type {
-  SearchResult,
-  SearchRequest,
   SearchResponse,
   TagRecommendationRequest,
   TagRecommendationResponse,
   CategoryListResponse,
+  CategoryInfo,
 } from '../types/search';
 
 /**
@@ -23,7 +22,7 @@ export async function searchAgents(
   }
 ): Promise<SearchResponse> {
   // 获取所有 agents
-  const allAgents = await getAgents();
+  const allAgents = await getAllAgents();
   const agents = allAgents.filter(agent => {
     // 如果有查询关键词，进行全文搜索
     if (query && query.trim()) {
@@ -48,6 +47,10 @@ export async function searchAgents(
 
     return true;
   });
+
+  // 缓存 categories 和 tags，避免每次都重新计算
+  const categoriesCache = new Set(allAgents.map(a => a.category).filter(Boolean));
+  const tagsCache = new Set(allAgents.flatMap(a => a.tags || []));
 
   // 排序
   if (filters?.sortBy) {
@@ -106,21 +109,34 @@ export async function searchAgents(
     pageSize,
     totalPages,
     filters: {
-      // 收集所有分类
-      categories: [...new Set(allAgents.map(a => a.category).filter(Boolean))],
-      // 收集所有标签
-      tags: [...new Set(allAgents.flatMap(a => a.tags || []))],
+      // 使用缓存的分类
+      categories: [...categoriesCache],
+      // 使用缓存的标签
+      tags: [...tagsCache],
       // 收集热门标签（出现次数最多的5个）
       popularTags: getPopularTags(allAgents, 5),
     },
   };
 }
 
+// 缓存分类列表
+let cachedCategories: CategoryInfo[] | null = null;
+let cacheTimestamp = 0;
+const CACHE_TTL = 60000; // 60秒缓存
+
 /**
  * 获取分类列表
  */
 export async function getCategoryList(): Promise<CategoryListResponse> {
-  const allAgents = await getAgents();
+  // 如果缓存有效，直接返回
+  const now = Date.now();
+  if (cachedCategories && (now - cacheTimestamp < CACHE_TTL)) {
+    return {
+      categories: cachedCategories,
+    };
+  }
+
+  const allAgents = await getAllAgents();
   const categories = new Map<string, number>();
 
   allAgents.forEach(agent => {
@@ -133,74 +149,97 @@ export async function getCategoryList(): Promise<CategoryListResponse> {
     ([name, count]) => ({ name, count })
   );
 
+  cachedCategories = categoryList.sort((a, b) => b.count - a.count);
+  cacheTimestamp = now;
+
   return {
-    categories: categoryList.sort((a, b) => b.count - a.count),
+    categories: cachedCategories,
   };
 }
 
 /**
  * 获取标签推荐
  */
+// 缓存标签统计
+let cachedTagCounts: Map<string, number> | null = null;
+let cachedCategoryTags: Map<string, string[]> | null = null;
+let tagCacheTimestamp = 0;
+const TAG_CACHE_TTL = 30000; // 30秒缓存
+
 export async function getTagRecommendations(
   options?: TagRecommendationRequest
 ): Promise<TagRecommendationResponse> {
   const limit = options?.limit || 10;
 
-  const allAgents = await getAgents();
+  const allAgents = await getAllAgents();
   const tagCounts = new Map<string, number>();
   const categoryTags = new Map<string, string[]>();
 
-  allAgents.forEach(agent => {
-    // 统计标签出现次数
-    if (agent.tags) {
-      agent.tags.forEach(tag => {
-        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
-      });
-    }
-
-    // 按分类分组标签
-    if (agent.category) {
-      if (!categoryTags.has(agent.category)) {
-        categoryTags.set(agent.category, []);
-      }
+  // 使用缓存
+  const now = Date.now();
+  if (cachedTagCounts && cachedCategoryTags && (now - tagCacheTimestamp < TAG_CACHE_TTL)) {
+    tagCounts = cachedTagCounts;
+    categoryTags = cachedCategoryTags;
+  } else {
+    allAgents.forEach(agent => {
+      // 统计标签出现次数
       if (agent.tags) {
-        categoryTags.get(agent.category)!.push(...agent.tags);
+        agent.tags.forEach(tag => {
+          tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+        });
       }
-    }
-  });
 
-  // 过滤掉空标签
-  const validTagCounts = new Map<string, number>();
-  tagCounts.forEach((count, tag) => {
-    if (tag && tag.trim()) {
-      validTagCounts.set(tag, count);
-    }
-  });
+      // 按分类分组标签
+      if (agent.category) {
+        if (!categoryTags.has(agent.category)) {
+          categoryTags.set(agent.category, []);
+        }
+        if (agent.tags) {
+          categoryTags.get(agent.category)!.push(...agent.tags);
+        }
+      }
+    });
 
-  // 如果指定了分类，只返回该分类的标签
-  if (options?.category) {
-    const categoryTagsArray = categoryTags.get(options.category) || [];
-    const uniqueCategoryTags = [...new Set(categoryTagsArray)];
-    const recommendedTags = uniqueCategoryTags
-      .map(tag => ({
-        name: tag,
-        count: tagCounts.get(tag) || 0,
-        category: options.category,
-      }))
-      .filter(t => t.count > 0)
+    // 缓存标签统计
+    if (!cachedTagCounts || !cachedCategoryTags || (now - tagCacheTimestamp >= TAG_CACHE_TTL)) {
+      cachedTagCounts = tagCounts;
+      cachedCategoryTags = categoryTags;
+      tagCacheTimestamp = now;
+    }
+
+    // 过滤掉空标签
+    const validTagCounts = new Map<string, number>();
+    tagCounts.forEach((count, tag) => {
+      if (tag && tag.trim()) {
+        validTagCounts.set(tag, count);
+      }
+    });
+
+    // 如果指定了分类，只返回该分类的标签
+    if (options?.category) {
+      const categoryTagsArray = categoryTags.get(options.category) || [];
+      const uniqueCategoryTags = [...new Set(categoryTagsArray)];
+      const recommendedTags = uniqueCategoryTags
+        .map(tag => ({
+          name: tag,
+          count: tagCounts.get(tag) || 0,
+          category: options.category,
+        }))
+        .filter(t => t.count > 0)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
+
+      return { tags: recommendedTags };
+    }
+
+    // 否则返回全局热门标签
+    const recommendedTags = Array.from(validTagCounts.entries())
+      .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, limit);
 
     return { tags: recommendedTags };
   }
-
-  // 否则返回全局热门标签
-  const recommendedTags = Array.from(validTagCounts.entries())
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
-
-  return { tags: recommendedTags };
 }
 
 /**

@@ -11,6 +11,24 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录 - 智知 Agent', public: true },
   },
   {
+    path: '/forgot-password',
+    name: 'ForgotPassword',
+    component: () => import('@/views/ForgotPasswordView.vue'),
+    meta: { title: '忘记密码 - 智知 Agent', public: true },
+  },
+  {
+    path: '/reset-password',
+    name: 'ResetPassword',
+    component: () => import('@/views/ResetPasswordView.vue'),
+    meta: { title: '重置密码 - 智知 Agent', public: true },
+  },
+  {
+    path: '/change-password',
+    name: 'ChangePassword',
+    component: () => import('@/views/ChangePasswordView.vue'),
+    meta: { title: '修改密码 - 智知 Agent' },
+  },
+  {
     path: '/',
     redirect: '/chat',
   },
@@ -36,8 +54,14 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/search',
     name: 'Search',
-    component: () => import('@/views/SearchView.vue'),
+    component: () => import('@/views/AgentSearchView.vue'),
     meta: { title: '搜索 Agent' },
+  },
+  {
+    path: '/agents/:id',
+    name: 'AgentDetail',
+    component: () => import('@/views/AgentDetailView.vue'),
+    meta: { title: 'Agent 详情' },
   },
   {
     path: '/knowledge',

@@ -1,4 +1,4 @@
-import { getAgents, getAgent } from './customAgent';
+import { getAllAgents, getAgent } from './customAgent';
 import { getAllAgentsRatingStats } from './rating';
 import { getAllComments } from './comment';
 import type {
@@ -54,7 +54,7 @@ export async function getAgentViewStats(agentId: string): Promise<AgentViewStats
  * 获取所有 Agent 访问统计
  */
 export async function getAllAgentViewStats(): Promise<AgentViewStats[]> {
-  const allAgents = await getAgents();
+  const allAgents = await getAllAgents();
   const stats = [];
 
   for (const agent of allAgents) {
@@ -119,7 +119,7 @@ export async function getTemplateUsageStats(templateId: string): Promise<Templat
  * 获取所有模板使用统计
  */
 export async function getAllTemplateUsageStats(): Promise<TemplateUsageStats[]> {
-  const allAgents = await getAgents();
+  const allAgents = await getAllAgents();
   const stats = [];
 
   for (const agent of allAgents) {
@@ -220,7 +220,7 @@ export async function getRatingTrendStats(agentId: string): Promise<RatingTrendS
  * 获取所有 Agent 的评分趋势统计
  */
 export async function getAllRatingTrendStats(): Promise<RatingTrendStats[]> {
-  const allAgents = await getAgents();
+  const allAgents = await getAllAgents();
   const stats = [];
 
   for (const agent of allAgents) {
@@ -239,7 +239,7 @@ export async function getAllRatingTrendStats(): Promise<RatingTrendStats[]> {
 export async function getPopularAgentsStats(
   limit: number = 10
 ): Promise<PopularAgentStats[]> {
-  const allAgents = await getAgents();
+  const allAgents = await getAllAgents();
   const ratingStats = await getAllAgentsRatingStats();
   const agentStatsMap = new Map(ratingStats.map(s => [s.agentId, s]));
 
@@ -284,7 +284,7 @@ export async function getPopularAgentsStats(
  * 获取统计汇总
  */
 export async function getAnalyticsSummary(): Promise<AnalyticsSummary> {
-  const allAgents = await getAgents();
+  const allAgents = await getAllAgents();
   const ratingStats = await getAllAgentsRatingStats();
   const allComments = await getAllComments();
 

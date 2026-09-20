@@ -53,6 +53,16 @@ export async function executeCode(
   let args: string[];
   let timeout = 30000;
 
+  // 检测 Python 可执行文件
+  const getPythonCommand = () => {
+    // Windows 优先使用 py 命令
+    if (os.platform() === 'win32') {
+      return 'py';
+    }
+    // macOS/Linux 尝试 python3，然后 python
+    return 'python3';
+  };
+
   try {
     if (language === 'python') {
       filePath = path.join(tmpDir, 'script.py');
@@ -67,7 +77,7 @@ export async function executeCode(
         timeout = 120000; // 放宽超时
       }
       fs.writeFileSync(filePath, code, 'utf-8');
-      cmd = 'python';
+      cmd = getPythonCommand();
       args = [filePath];
     } else {
       filePath = path.join(tmpDir, 'script.mjs');
@@ -78,7 +88,9 @@ export async function executeCode(
 
     // 执行代码
     const result = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
-      execFile(cmd, args, {
+      console.log(`🐍 [${language}] 执行命令：${cmd} ${args.join(' ')}`);
+      
+      const childProcess = execFile(cmd, args, {
         cwd: tmpDir,
         timeout,
         maxBuffer: 5 * 1024 * 1024, // 5MB
@@ -87,11 +99,22 @@ export async function executeCode(
         let exitCode = 0;
         if (error) {
           exitCode = typeof (error as any).code === 'number' ? (error as any).code : 1;
+          console.error(`❌ [${language}] 执行失败:`);
+          console.error(`   错误信息:', error.message`);
+          console.error(`   stdout:', stdout || '(空)'`);
+          console.error(`   stderr:', stderr || '(空)'`);
           if ((error as any).killed) {
             stderr = (stderr || '') + '\n[执行超时，已强制终止]';
           }
+        } else {
+          console.log(`✅ [${language}] 执行成功:`);
+          console.log(`   stdout:', stdout || '(无输出)'`);
         }
         resolve({ stdout: stdout || '', stderr: stderr || '', exitCode });
+      });
+      
+      childProcess.on('error', (err) => {
+        console.error(`💥 [${language}] 进程启动失败:`, err.message);
       });
     });
 

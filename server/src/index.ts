@@ -40,23 +40,24 @@ const allowedOrigins = [
   process.env.FRONTEND_URL || '',
 ].filter(Boolean);
 
-// 桌面端（Electron）由主进程托管前端，本地 http 服务用的是系统动态分配的端口，
-// 没法预先写进上面的白名单；而前端里有几处是直接拿 VITE_API_BASE_URL 拼绝对地址的
-// （SSE 流式接口、模型列表等），一旦端口对不上就会撞 CORS。
-// 这里对"本机回环来源"统一放行：既覆盖桌面端，也不会把外部站点放进来。
+// 桌面端（Electron）主进程托管前端用的是系统随机端口，无法预进白名单；
+// 这里对“本机回环来源”放行，但不允许携带凭证（credentials: false）：
+// 桌面/Web 鉴权走 Authorization 头而非 Cookie，避免本机任意端口页面带 cookie 读取登录态响应。
 const isLoopbackOrigin = (origin: string): boolean =>
   /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin);
 
-app.use(cors({
-  origin: (origin, callback) => {
-    // 允许无 origin 的请求（如 curl/Postman）和白名单内的来源
-    if (!origin || allowedOrigins.includes(origin) || isLoopbackOrigin(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('不允许的跨域来源'));
-    }
-  },
-  credentials: true,
+app.use(cors((req, callback) => {
+  const origin = req.headers.origin;
+  // 无 origin（curl/Postman/同源）或白名单内：正常放行并允许凭证
+  if (!origin || allowedOrigins.includes(origin)) {
+    return callback(null, { origin: true, credentials: true });
+  }
+  // 回环来源（桌面端随机端口）：放行但不带凭证
+  if (isLoopbackOrigin(origin)) {
+    return callback(null, { origin: true, credentials: false });
+  }
+  // 其余一律不允许跨域
+  callback(null, { origin: false });
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));

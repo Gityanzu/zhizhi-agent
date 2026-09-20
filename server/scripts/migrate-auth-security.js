@@ -223,32 +223,17 @@ try {
 
   console.log('');
 
-  // 7. 创建audit_logs表（审计日志）
-  console.log('📝 创建audit_logs表...');
+  // 7. 检查audit_logs表（建表已统一收归 src/db.ts initDatabase，此处不再重复建表，避免双定义 schema 冲突）
+  console.log('📝 检查audit_logs表...');
   try {
-    await query(`
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        id SERIAL PRIMARY KEY,
-        user_id UUID,
-        username VARCHAR(50),
-        action VARCHAR(100),
-        resource_type VARCHAR(50),
-        resource_id VARCHAR(100),
-        ip_address VARCHAR(45),
-        details JSONB,
-        created_at TIMESTAMP DEFAULT NOW()
-      )
-    `);
-    console.log('  ✅ 创建audit_logs表');
-
-    // 创建索引
-    await query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)`);
-    await query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)`);
-    await query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id)`);
-    await query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)`);
-    console.log('  ✅ 创建索引');
+    const r = await query(`SELECT to_regclass('public.audit_logs') AS t`);
+    if (r.rows[0]?.t) {
+      console.log('  ✅ audit_logs 表已存在（由 db.ts 统一创建）');
+    } else {
+      console.warn('  ⚠️ audit_logs 表不存在，请启动一次服务端由 db.ts initDatabase 自动创建');
+    }
   } catch (error) {
-    console.error('  ❌ 创建audit_logs表失败:', error.message);
+    console.error('  ❌ 检查audit_logs表失败:', error.message);
   }
 
   console.log('');

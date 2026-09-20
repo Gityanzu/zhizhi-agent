@@ -1,4 +1,4 @@
-import request from './request';
+import { api } from './request';
 
 /**
  * 搜索参数
@@ -14,7 +14,7 @@ export interface SearchParams {
 }
 
 /**
- * 搜索结果�? */
+ * 搜索结果�? */
 export interface SearchResult {
   agentId: string;
   name: string;

@@ -516,6 +516,8 @@ export async function initDatabase(): Promise<boolean> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_resource ON audit_logs(resource_type, resource_id)`);
 
     // 为审计日志表添加注释
     await client.query(`COMMENT ON TABLE audit_logs IS '审计日志表：记录用户关键操作行为'`);

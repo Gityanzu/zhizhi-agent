@@ -1,7 +1,7 @@
-import request from './request';
+import { api } from './request';
 
 /**
- * 评论状�? */
+ * 评论状�? */
 export type CommentStatus = 'active' | 'pending' | 'rejected' | 'hidden';
 
 /**
@@ -50,7 +50,7 @@ export interface CommentListResponse {
 }
 
 /**
- * 评论树节�? */
+ * 评论树节�? */
 export interface CommentTree {
   id: string;
   agentId: string;
@@ -117,7 +117,7 @@ export async function deleteComment(commentId: string): Promise<void> {
 }
 
 /**
- * 获取评论�? */
+ * 获取评论�? */
 export async function getCommentTree(agentId: string): Promise<CommentTree[]> {
   const response = await api.get(`/api/agent-market/comments/${agentId}/tree`);
   return response.data;
@@ -148,7 +148,7 @@ export async function getUserComments(userId: string): Promise<AgentComment[]> {
 }
 
 /**
- * 审核评论（管理员�? */
+ * 审核评论（管理员�? */
 export async function moderateComment(
   commentId: string,
   action: 'approve' | 'reject' | 'hide',
@@ -178,7 +178,7 @@ export async function getHiddenComments(): Promise<AgentComment[]> {
 }
 
 /**
- * 批量审核评论（管理员�? */
+ * 批量审核评论（管理员�? */
 export async function batchModerateComments(
   commentIds: string[],
   action: 'approve' | 'reject' | 'hide',

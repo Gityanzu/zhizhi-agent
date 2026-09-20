@@ -185,7 +185,7 @@ export async function changePassword(
   userId: string,
   oldPassword: string,
   newPassword: string
-): Promise<{ success: boolean; message: string; error?: string }> {
+): Promise<{ success: boolean; message: string; error?: string; suggestions?: string[] }> {
   try {
     const pool = getPool();
     
@@ -306,6 +306,7 @@ export async function logAuditEvent(logData: {
   action: string;
   resourceType?: string;
   resourceId?: string;
+  ipAddress?: string;
   details?: any;
 }): Promise<void> {
   try {

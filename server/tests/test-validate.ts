@@ -78,7 +78,7 @@ async function validateDatabase() {
     ];
     
     const optionalIndexes = [
-      'idx_sessions_user_updated', 'idx_messages_session_created'
+      'idx_sessions_updated', 'idx_messages_session_created'
     ];
     
     const indexesResult = await query(`

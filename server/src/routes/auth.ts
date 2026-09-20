@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login, getUserById, updateProfile, changePassword, getUserLoginStats } from '../services/auth';
+import { register, login, getUserById, updateProfile, changePassword, getUserLoginStats, logAuditEvent } from '../services/auth';
 import { requestPasswordReset, resetPassword } from '../services/passwordReset';
 import { refreshToken, logout, isTokenBlacklisted } from '../services/tokenManager';
 import { requireAuth, AuthRequest } from '../middleware/auth';
@@ -32,8 +32,7 @@ router.post('/register', async (req, res) => {
       username: result.user.username,
       ipAddress: getUserIp(req),
       userAgent: req.headers['user-agent'] || 'unknown',
-      status: 'success',
-      reason: 'user_registered'
+      status: 'success'
     });
 
     res.json({
@@ -138,6 +137,7 @@ router.put('/profile', requireAuth, async (req: AuthRequest, res) => {
       action: 'profile_update',
       resourceType: 'user',
       resourceId: req.userId,
+      ipAddress: getUserIp(req),
       details: { fields: Object.keys(req.body) }
     });
 
@@ -195,10 +195,10 @@ router.post('/reset-password', async (req, res) => {
 
     if (result.success) {
       // 记录审计日志
-      const { logAuditEvent } = await import('../services/auth.ts');
       await logAuditEvent({
         action: 'password_reset',
         resourceType: 'user',
+        ipAddress: getUserIp(req),
         details: { method: 'email_link' }
       });
     }
@@ -228,6 +228,7 @@ router.put('/change-password', requireAuth, async (req: AuthRequest, res) => {
         action: 'password_change',
         resourceType: 'user',
         resourceId: req.userId,
+        ipAddress: getUserIp(req),
         details: { reason: 'user_changed_password' }
       });
     }
@@ -247,8 +248,8 @@ router.post('/refresh-token', async (req, res) => {
       return res.status(400).json({ error: '刷新令牌不能为空' });
     }
 
-    // 检查是否在黑名单
-    if (isTokenBlacklisted(refreshToken)) {
+    // 检查是否在黑名单（必须 await，否则 Promise 恒为真值，导致刷新接口永远 401）
+    if (await isTokenBlacklisted(refreshToken)) {
       return res.status(401).json({ error: '令牌已失效' });
     }
 
@@ -279,14 +280,13 @@ router.post('/logout', requireAuth, async (req: AuthRequest, res) => {
     // 清除客户端Cookie
     res.clearCookie('token');
 
-    // 记录登出日志
+    // 记录登出日志（登出属于成功事件，status 仅支持 success|failed）
     await logLoginEvent({
       userId: req.userId,
-      username: req.username,
+      username: req.username || 'unknown',
       ipAddress: getUserIp(req),
       userAgent: req.headers['user-agent'] || 'unknown',
-      status: 'logout',
-      reason: 'user_logout'
+      status: 'success'
     });
 
     res.json({ message: '登出成功' });

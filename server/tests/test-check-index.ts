@@ -20,7 +20,7 @@ if (fs.existsSync(envPath)) {
 import { query } from '../src/db';
 
 async function check() {
-  const r = await query("SELECT indexname FROM pg_indexes WHERE schemaname='public' AND (indexname='idx_sessions_user_updated' OR indexname='idx_messages_session_created')");
+  const r = await query("SELECT indexname FROM pg_indexes WHERE schemaname='public' AND (indexname='idx_sessions_updated' OR indexname='idx_messages_session_created')");
   console.log('Found indexes:', r.rows);
 }
 

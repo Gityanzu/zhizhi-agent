@@ -33,15 +33,24 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
+  'http://localhost:5678',
   'http://127.0.0.1:5173',
   'http://127.0.0.1:5174',
+  'http://127.0.0.1:5678',
   process.env.FRONTEND_URL || '',
 ].filter(Boolean);
+
+// 桌面端（Electron）由主进程托管前端，本地 http 服务用的是系统动态分配的端口，
+// 没法预先写进上面的白名单；而前端里有几处是直接拿 VITE_API_BASE_URL 拼绝对地址的
+// （SSE 流式接口、模型列表等），一旦端口对不上就会撞 CORS。
+// 这里对"本机回环来源"统一放行：既覆盖桌面端，也不会把外部站点放进来。
+const isLoopbackOrigin = (origin: string): boolean =>
+  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin);
 
 app.use(cors({
   origin: (origin, callback) => {
     // 允许无 origin 的请求（如 curl/Postman）和白名单内的来源
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || isLoopbackOrigin(origin)) {
       callback(null, true);
     } else {
       callback(new Error('不允许的跨域来源'));
@@ -86,7 +95,7 @@ app.get('/api/db/check', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: 'disconnected',
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString()
     });
   }
@@ -105,7 +114,7 @@ app.get('/api/cache/status', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString()
     });
   }
@@ -135,7 +144,7 @@ app.get('/api/stats/system', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       status: 'error',
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString()
     });
   }

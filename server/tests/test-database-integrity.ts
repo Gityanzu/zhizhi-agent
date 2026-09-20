@@ -99,7 +99,7 @@ async function runTests() {
       { table: 'search_histories', index: 'idx_search_histories_user_id' },
       { table: 'analytics', index: 'idx_analytics_metric' },
       { table: 'skills', index: 'idx_skills_user_id' },
-      { table: 'sessions', index: 'idx_sessions_user_updated' },
+      { table: 'sessions', index: 'idx_sessions_updated' },
       { table: 'messages', index: 'idx_messages_session_created' },
       { table: 'agents', index: 'idx_agents_created_at' },
     ];

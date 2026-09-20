@@ -335,6 +335,19 @@ export async function initDatabase(): Promise<boolean> {
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    // agents 表新增字段：分类/标签/评分统计（customAgent 服务读写依赖，旧表存在时 CREATE IF NOT EXISTS 不会补列）
+    await client.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS category VARCHAR(50)`);
+    await client.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'`);
+    await client.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS rating DECIMAL(3,1) DEFAULT 0`);
+    await client.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS rating_count INTEGER DEFAULT 0`);
+    await client.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0`);
+    await client.query(`ALTER TABLE agents ADD COLUMN IF NOT EXISTS template_count INTEGER DEFAULT 0`);
+    await client.query(`COMMENT ON COLUMN agents.category IS 'Agent 分类'`);
+    await client.query(`COMMENT ON COLUMN agents.tags IS '标签列表 (JSONB 数组)'`);
+    await client.query(`COMMENT ON COLUMN agents.rating IS '平均评分'`);
+    await client.query(`COMMENT ON COLUMN agents.rating_count IS '评分人数'`);
+    await client.query(`COMMENT ON COLUMN agents.view_count IS '浏览次数'`);
+    await client.query(`COMMENT ON COLUMN agents.template_count IS '关联模板数'`);
 
     // 自定义API工具表（第二阶段功能6）
     await client.query(`
@@ -486,6 +499,35 @@ export async function initDatabase(): Promise<boolean> {
     await client.query(`COMMENT ON COLUMN login_logs.status IS '登录状态：success|failed'`);
     await client.query(`COMMENT ON COLUMN login_logs.failure_reason IS '失败原因'`);
     await client.query(`COMMENT ON COLUMN login_logs.created_at IS '登录时间'`);
+
+    // 审计日志表（logAudit 服务依赖，此前缺失导致写入失败）
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        username VARCHAR(100),
+        action VARCHAR(100) NOT NULL,
+        resource_type VARCHAR(50),
+        resource_id VARCHAR(100),
+        ip_address VARCHAR(45),
+        details JSONB,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)`);
+
+    // 为审计日志表添加注释
+    await client.query(`COMMENT ON TABLE audit_logs IS '审计日志表：记录用户关键操作行为'`);
+    await client.query(`COMMENT ON COLUMN audit_logs.id IS '日志 ID (UUID)'`);
+    await client.query(`COMMENT ON COLUMN audit_logs.user_id IS '用户 ID (UUID)'`);
+    await client.query(`COMMENT ON COLUMN audit_logs.username IS '用户名（冗余字段，便于查询）'`);
+    await client.query(`COMMENT ON COLUMN audit_logs.action IS '操作类型'`);
+    await client.query(`COMMENT ON COLUMN audit_logs.resource_type IS '资源类型'`);
+    await client.query(`COMMENT ON COLUMN audit_logs.resource_id IS '资源 ID'`);
+    await client.query(`COMMENT ON COLUMN audit_logs.ip_address IS 'IP 地址'`);
+    await client.query(`COMMENT ON COLUMN audit_logs.details IS '操作详情 (JSONB)'`);
+    await client.query(`COMMENT ON COLUMN audit_logs.created_at IS '操作时间'`);
 
     // 令牌管理表（刷新令牌、密码找回令牌等）
     await client.query(`
@@ -675,9 +717,9 @@ export async function initDatabase(): Promise<boolean> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_skills_builtin ON skills(is_builtin)`);
 
     // 为常用查询添加复合索引
-    
-    // sessions 表：按用户和更新时间排序
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_sessions_user_updated ON sessions(user_id, updated_at DESC)`);
+
+    // sessions 表：按更新时间排序（sessions 不含 user_id 列，故不按用户维度建索引）
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC)`);
     
     // messages 表：按会话和创建时间排序
     await client.query(`CREATE INDEX IF NOT EXISTS idx_messages_session_created ON messages(session_id, created_at)`);

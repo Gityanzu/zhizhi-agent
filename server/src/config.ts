@@ -38,11 +38,16 @@ export const config = {
   
   chroma: {
     collectionName: process.env.CHROMA_COLLECTION_NAME || 'zhizhi_knowledge_base',
-    persistDirectory: path.resolve(__dirname, '../../', process.env.CHROMA_DIR || '../data/chroma'),
+    // 桌面端由 Electron 注入 ZHI_USER_DATA：用户数据落 userData 目录，与安装目录分离，升级不丢数据
+    persistDirectory: process.env.ZHI_USER_DATA
+      ? path.join(process.env.ZHI_USER_DATA, 'data', 'chroma')
+      : path.resolve(__dirname, '../../', process.env.CHROMA_DIR || '../data/chroma'),
   },
   
   upload: {
-    dir: path.resolve(__dirname, '../../', process.env.UPLOAD_DIR || '../data/uploads'),
+    dir: process.env.ZHI_USER_DATA
+      ? path.join(process.env.ZHI_USER_DATA, 'data', 'uploads')
+      : path.resolve(__dirname, '../../', process.env.UPLOAD_DIR || '../data/uploads'),
     maxFileSize: 50 * 1024 * 1024, // 50MB
     allowedTypes: ['.pdf', '.docx', '.md', '.txt'],
   },

@@ -9,6 +9,21 @@ import type {
   AdvancedSearchParams,
 } from '@/types/search';
 
+// 类型从这里统一再导出：调用方只需要认一个入口，
+// 不必在 api/ 与 types/ 两个目录之间来回找（SearchView / SearchInput 就是按这个入口写的）
+export type {
+  SearchParams,
+  SearchResponse,
+  SearchStats,
+  SearchHistory,
+  PopularSearch,
+  SearchSuggestion,
+  SearchFacets,
+  SearchResult,
+  FacetOption,
+  AdvancedSearchParams,
+} from '@/types/search';
+
 // ==================== 基础搜索 ====================
 
 /**

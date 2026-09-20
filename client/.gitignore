@@ -1,0 +1,23 @@
+# 依赖与构建产物
+node_modules/
+dist/
+release/
+*.tsbuildinfo
+
+# Electron 打包中间产物
+out/
+
+# 本地环境
+.env.local
+.env.*.local
+
+# 编辑器
+.vscode/
+.idea/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 打包前的配置备份
+package.json.bak-*

@@ -70,7 +70,7 @@
 import { ref, reactive, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ResetPassword } from '@/api/auth';
+import { resetPassword } from '@/api/auth';
 
 const router = useRouter();
 const route = useRoute();
@@ -168,7 +168,7 @@ async function handleResetPassword() {
 
     loading.value = true;
 
-    await ResetPassword(token, form.newPassword);
+    await resetPassword(token, form.newPassword);
 
     ElMessage.success('密码重置成功，请使用新密码登录');
     router.push('/login');

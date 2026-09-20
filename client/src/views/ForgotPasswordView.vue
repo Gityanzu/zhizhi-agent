@@ -71,7 +71,7 @@
 import { ref, reactive } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
-import { ForgotPassword } from '@/api/auth';
+import { forgotPassword } from '@/api/auth';
 
 const router = useRouter();
 const route = useRoute();
@@ -96,7 +96,7 @@ async function handleForgotPassword() {
 
     loading.value = true;
 
-    await ForgotPassword({ email: form.email });
+    await forgotPassword(form.email);
 
     sent.value = true;
     ElMessage.success('如果该邮箱已注册，您将收到重置密码的邮件');

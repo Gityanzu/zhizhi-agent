@@ -1,0 +1,105 @@
+# electron-builder 打包配置
+#
+# 三平台目标与取舍（这也是"跨平台适配"最实质的部分，不只是 process.platform 判断）：
+#   win   : nsis  —— 允许用户改安装目录、带卸载器；nsis 是目前企业内网分发最稳的形式
+#   mac   : dmg + zip —— dmg 给人装，zip 是 electron-updater 在 macOS 上做自更新必须的产物
+#   linux : AppImage + deb —— AppImage 才能自更新，deb 交给系统包管理器
+#
+# asar: true 把应用代码打进 asar 归档，防止用户误改；原生的 .node 模块需要 asarUnpack 解出来。
+appId: com.huxin.zhizhiagent
+productName: ZhizhiAgent
+copyright: Copyright © 2026 胡鑫
+
+directories:
+  output: release/${version}
+
+# 国内网络直连 GitHub Releases 基本下不动（实测直接 EOF），
+# 这里指定镜像。也可以用 ELECTRON_MIRROR 环境变量覆盖。
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+
+# 只把运行时真正需要的东西装进去：
+#   dist/**       前端构建产物
+#   electron/**   主进程与 preload
+#   package.json  主进程入口声明
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+  - '!**/*.map'
+  - '!**/test/**'
+  - '!**/tests/**'
+  - '!**/*.md'
+
+asar: true
+
+# ---------------------------- Windows ----------------------------
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  # icon: resources/icon.ico   # 补齐图标后取消注释（缺图标时用 Electron 默认图标）
+
+nsis:
+  oneClick: false                       # 走安装向导，而不是静默一键装
+  perMachine: false                     # 按用户安装，避免要求管理员权限
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false       # 卸载保留用户数据，避免误删知识库
+  artifactName: ${productName}_Setup_${version}.${ext}
+
+portable:
+  artifactName: ${productName}_Portable_${version}.${ext}
+
+# ---------------------------- macOS ----------------------------
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip                 # electron-updater 在 macOS 自更新依赖 zip
+      arch: [x64, arm64]
+  category: public.app-category.productivity
+  hardenedRuntime: true           # 公证（notarize）的前置条件
+  gatekeeperAssess: false
+  entitlementsInherit: build/entitlements.mac.plist
+  artifactName: ${productName}_${version}_${arch}.${ext}
+  # 生产发布必须配置签名与公证，否则用户双击会被 Gatekeeper 拦下：
+  # notarize: true
+  # 需要环境变量：APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+
+dmg:
+  artifactName: ${productName}_${version}_${arch}.${ext}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+
+# ---------------------------- Linux ----------------------------
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Utility
+  maintainer: 胡鑫
+  artifactName: ${productName}_${version}_${arch}.${ext}
+
+# -------------------------- 自动更新源 --------------------------
+# generic 源 = 任意静态文件服务器（自建 CDN / OSS / Nginx 目录）。
+# 打包时会据此生成 app-update.yml 与 latest.yml，客户端启动后按它去找更新。
+# 内网私有化部署时，把 url 指向客户内网的静态目录即可。
+publish:
+  - provider: generic
+    url: https://update.example.com/zhizhi/${os}
+    channel: latest
+
+# 提交更新说明文件，出现在客户端的更新提示里
+releaseInfo:
+  releaseNotes: |
+    - 修复若干问题
+    - 优化体验

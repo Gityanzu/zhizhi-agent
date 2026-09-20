@@ -1,0 +1,16 @@
+# 开发模式下的更新配置（配合 UPDATE_FORCE_DEV=1 使用）
+#
+# electron-updater 在未打包的应用里默认拒绝检查更新，因为它找不到 app-update.yml。
+# 打开 forceDevUpdateConfig 后它会读取本文件，于是可以在本地把
+# "检查 → 下载 → 安装" 整条链路跑通，不用每次都真的打一个包。
+#
+# 用法：
+#   1) 先打一个低版本安装包（改 package.json 的 version，例如 1.0.1）并装到本机
+#   2) 把 version 改回 1.0.2，执行 npm run dist:win
+#   3) 把 release/1.0.2 下的 latest.yml 与安装包放进一个静态目录
+#   4) node scripts/update-server.cjs <该目录> 9876
+#   5) UPDATE_FORCE_DEV=1 UPDATE_FEED_URL=http://127.0.0.1:9876 npm run electron:dev
+provider: generic
+url: http://127.0.0.1:9876
+channel: latest
+updaterCacheDirName: zhizhi-agent-updater

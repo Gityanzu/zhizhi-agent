@@ -10,7 +10,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: 5678,
     proxy: {
       // 流式接口：SSE 配置
       '/api/chat/stream': {

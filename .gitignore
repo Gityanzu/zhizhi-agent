@@ -31,3 +31,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# 测试报告/修复报告等生成文档，不入库
+docs/reports/

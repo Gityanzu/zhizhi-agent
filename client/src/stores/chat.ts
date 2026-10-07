@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { getToken } from '@/api/request';
 import type { ChatMessage, SessionInfo, DocumentInfo, Folder, BranchInfo, ModelParams, CustomAgent, CustomTool, Collection, Provider, ProviderGroup, CompareResult, ModelInfo, SkillInfo } from '@/types';
+import { createTask, cancelTask, approveTask, planConfirmTask, sendMessageViaTask } from '@/api/task';
 import {
   sendMessage as apiSendMessage,
   sendMessageStream,
@@ -96,6 +97,7 @@ export const useChatStore = defineStore('chat', () => {
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const abortController = ref<AbortController | null>(null);
+  const currentTaskId = ref<string | null>(null); // 当前进行中的任务ID（用于取消/审批关联）
   
   // 任务模式：qa(智能问答) / agent / plan / multi(多Agent协作)
   const mode = ref<'qa' | 'agent' | 'plan' | 'multi'>('agent');
@@ -804,10 +806,11 @@ export const useChatStore = defineStore('chat', () => {
   async function respondApproval(messageId: string, approved: boolean, remember: boolean = false) {
     const msg = messages.value.find(m => m.id === messageId);
     if (!msg || !msg.pendingApproval || msg.pendingApproval.decided) return;
-    const requestId = msg.pendingApproval.requestId;
+    const { requestId, taskId } = msg.pendingApproval;
     msg.pendingApproval.decided = true;
     try {
-      await approveStream(requestId, approved, remember);
+      if (taskId) await approveTask(taskId, approved, remember);
+      else await approveStream(requestId, approved, remember);
     } catch (e) {
       console.error('审批响应失败:', e);
     }
@@ -817,12 +820,13 @@ export const useChatStore = defineStore('chat', () => {
   async function respondPlan(messageId: string, confirmed: boolean, feedback?: string) {
     const msg = messages.value.find(m => m.id === messageId);
     if (!msg || !msg.pendingPlan || msg.pendingPlan.decided) return;
-    const requestId = msg.pendingPlan.requestId;
+    const { requestId, taskId } = msg.pendingPlan;
     msg.pendingPlan.decided = true;
     msg.pendingPlan.confirmed = confirmed;
     msg.pendingPlan.feedback = feedback;
     try {
-      await planConfirmStream(requestId, confirmed, feedback);
+      if (taskId) await planConfirmTask(taskId, confirmed, feedback);
+      else await planConfirmStream(requestId, confirmed, feedback);
     } catch (e) {
       console.error('计划确认响应失败:', e);
     }
@@ -882,7 +886,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       console.log(`[ChatStore] 发送消息 (${mode.value}模式, 流式):`, content);
 
-      await sendMessageStream(
+      const result = await sendMessageViaTask(
         content,
         currentSessionId.value || undefined,
         mode.value,
@@ -977,15 +981,27 @@ export const useChatStore = defineStore('chat', () => {
               break;
 
             case 'approval_required':
-              // 桌面端文件审批：在当前助手消息上挂审批卡，流式循环在后端阻塞等待用户点击
-              if (chunk.requestId) {
+              // 桌面端文件审批：在当前助手消息上挂审批卡，任务引擎阻塞等待用户点击
+              if (chunk.requestId || chunk.taskId) {
                 msg.pendingApproval = {
-                  requestId: chunk.requestId,
+                  requestId: chunk.requestId || chunk.taskId || '',
                   kind: chunk.kind || 'write',
                   path: chunk.path || '',
                   inRoot: chunk.inRoot ?? false,
                   oldContent: chunk.oldContent,
                   newContent: chunk.newContent,
+                  taskId: chunk.taskId,
+                };
+              }
+              break;
+
+            case 'plan_proposed':
+              // Plan 模式前置确认：挂计划卡，任务引擎阻塞等待用户确认
+              if (chunk.taskId) {
+                msg.pendingPlan = {
+                  requestId: chunk.taskId,
+                  plan: (chunk as any).plan || [],
+                  taskId: chunk.taskId,
                 };
               }
               break;
@@ -1028,6 +1044,8 @@ export const useChatStore = defineStore('chat', () => {
         }
       );
 
+      currentTaskId.value = result.taskId;
+
       // 确保最终状态
       messages.value[assistantIndex].isStreaming = false;
 
@@ -1069,6 +1087,9 @@ export const useChatStore = defineStore('chat', () => {
 
   // 停止生成
   function stopGeneration() {
+    if (currentTaskId.value) {
+      cancelTask(currentTaskId.value).catch(() => {});
+    }
     if (abortController.value) {
       abortController.value.abort();
       abortController.value = null;

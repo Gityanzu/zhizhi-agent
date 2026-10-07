@@ -155,9 +155,22 @@ router.post('/:id/cancel', optionalAuth, async (req: AuthRequest, res: Response)
 router.post('/:id/approve', optionalAuth, async (req: AuthRequest, res: Response) => {
   const task = taskManager.get(req.params.id);
   if (!task) return res.status(404).json({ error: '任务不存在' });
-  const { approved } = req.body || {};
+  const { approved, remember } = req.body || {};
+  if (approved === true && remember === true && task.approval?.kind && task.sessionId) {
+    taskManager.rememberApproval(task.sessionId, task.approval.kind);
+  }
   const ok = taskManager.resolveApproval(req.params.id, approved === true);
   if (!ok) return res.status(409).json({ error: '当前没有待审批的请求' });
+  res.json({ ok: true, status: 'running' });
+});
+
+// Plan 前置确认（恢复挂起的任务）
+router.post('/:id/plan-confirm', optionalAuth, async (req: AuthRequest, res: Response) => {
+  const task = taskManager.get(req.params.id);
+  if (!task) return res.status(404).json({ error: '任务不存在' });
+  const { confirmed, feedback } = req.body || {};
+  const ok = taskManager.resolvePlanConfirm(req.params.id, confirmed === true, typeof feedback === 'string' ? feedback : undefined);
+  if (!ok) return res.status(409).json({ error: '当前没有待确认的计划' });
   res.json({ ok: true, status: 'running' });
 });
 

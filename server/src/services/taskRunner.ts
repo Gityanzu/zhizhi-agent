@@ -1,7 +1,7 @@
 import { taskManager } from './taskManager';
 import { config } from '../config';
 import { agentRunStream, type CustomAgentConfig, type ApprovalRequest } from './agent';
-import { planRun } from './plan';
+import { generatePlanOnly, executePlan } from './plan';
 import { multiAgentRun } from './multiAgent';
 import { getSessionMessages, addMessage } from './session';
 import { recordUsage } from './usage';
@@ -74,6 +74,7 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
   // HITL 审批回调：挂起任务直到前端调 /api/tasks/:id/approve
   const requestApproval = (areq: ApprovalRequest): Promise<boolean> => {
     if (taskManager.isCancelled(taskId)) return Promise.resolve(false);
+    if (taskManager.isRemembered(input.sessionId, areq.kind)) return Promise.resolve(true);
     return taskManager.requestApproval(taskId, areq);
   };
 
@@ -109,18 +110,33 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
         recordUsage(sessionId, undefined, modelInfo.name, usage.promptTokens, usage.completionTokens, usage.totalTokens).catch(() => {});
       taskManager.setResult(taskId, full, { tokenUsage: usage });
     } else if (mode === 'plan') {
-      const planResult = await planRun(message, history);
-      for (const step of planResult.steps) taskManager.emitEvent(taskId, 'plan_step', step);
-      taskManager.emitEvent(taskId, 'token', { content: planResult.finalAnswer, sources: [] });
-      await addMessage(sessionId, 'assistant', planResult.finalAnswer, 'plan', {
-        plan: planResult.plan,
-        tokenUsage: planResult.tokenUsage,
+      // Plan 模式：先生成计划并请求用户前置确认（HITL），确认后再执行。
+      const planSteps = await generatePlanOnly(message, history);
+      const decision = await taskManager.requestPlanConfirm(taskId, planSteps);
+      if (!decision.confirmed) {
+        taskManager.emitEvent(taskId, 'token', { content: '已取消执行计划。', sources: [] });
+        await addMessage(sessionId, 'assistant', '已取消执行计划。', 'plan', {
+          plan: planSteps,
+          tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        });
+        taskManager.setStatus(taskId, 'completed', { plan: planSteps });
+        return;
+      }
+      const finalSteps = decision.feedback
+        ? [...planSteps, { id: planSteps.length + 1, title: '附加约束', description: decision.feedback, status: 'pending' as const }]
+        : planSteps;
+      const exec = await executePlan(finalSteps, message, history);
+      for (const s of exec.steps) taskManager.emitEvent(taskId, s.type || 'plan_step', s);
+      taskManager.emitEvent(taskId, 'token', { content: exec.finalAnswer, sources: [] });
+      await addMessage(sessionId, 'assistant', exec.finalAnswer, 'plan', {
+        plan: finalSteps,
+        tokenUsage: exec.tokenUsage,
       });
-      if (planResult.tokenUsage)
-        recordUsage(sessionId, undefined, modelInfo.name, planResult.tokenUsage.promptTokens, planResult.tokenUsage.completionTokens, planResult.tokenUsage.totalTokens).catch(() => {});
-      taskManager.setResult(taskId, planResult.finalAnswer, {
-        plan: planResult.plan,
-        tokenUsage: planResult.tokenUsage,
+      if (exec.tokenUsage)
+        recordUsage(sessionId, undefined, modelInfo.name, exec.tokenUsage.promptTokens, exec.tokenUsage.completionTokens, exec.tokenUsage.totalTokens).catch(() => {});
+      taskManager.setResult(taskId, exec.finalAnswer, {
+        plan: finalSteps,
+        tokenUsage: exec.tokenUsage,
       });
     } else if (mode === 'multi') {
       taskManager.emitEvent(taskId, 'planning', { content: '多Agent协作开始...' });

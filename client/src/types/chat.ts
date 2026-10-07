@@ -30,6 +30,7 @@ export interface PendingApproval {
   oldContent?: string;
   newContent?: string;
   decided?: boolean; // 用户已点击（禁用按钮，避免重复提交）
+  taskId?: string; // 关联的任务ID（任务引擎模式下用于审批）
 }
 
 // Plan 模式前置确认（内联对话卡）
@@ -39,6 +40,7 @@ export interface PendingPlan {
   decided?: boolean; // 用户已点击
   confirmed?: boolean; // 最终是否确认执行
   feedback?: string; // 用户附加的约束/修改
+  taskId?: string; // 关联的任务ID（任务引擎模式下用于确认）
 }
 
 // 多Agent执行轨迹
@@ -117,7 +119,7 @@ export interface BranchInfo {
 
 // SSE 流式响应数据
 export interface StreamChunk {
-  type: 'session_id' | 'thinking' | 'tool_call' | 'tool_result' | 'token' | 'retrieval' | 'done' | 'error' | 'planning' | 'plan_created' | 'step_start' | 'step_done' | 'step_error' | 'summarizing' | 'qa' | 'agent_progress' | 'agent_trace' | 'approval_required' | 'plan_proposed';
+  type: 'session_id' | 'thinking' | 'tool_call' | 'tool_result' | 'token' | 'retrieval' | 'done' | 'error' | 'planning' | 'plan_created' | 'step_start' | 'step_done' | 'step_error' | 'summarizing' | 'qa' | 'agent_progress' | 'agent_trace' | 'approval_required' | 'plan_proposed' | 'status';
   content: string;
   // approval_required 事件携带的字段（桌面端文件审批）
   requestId?: string;
@@ -135,4 +137,6 @@ export interface StreamChunk {
   mode?: string;
   branch_id?: string;
   user_message_id?: string;
+  taskId?: string; // 关联的任务ID（任务引擎模式下 SSE 事件统一携带）
+  data?: any; // 通用附加数据（如 status 事件的 {status, final}）
 }

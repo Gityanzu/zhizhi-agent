@@ -42,3 +42,9 @@ agent_output/
 
 # 错误日志
 *.err
+
+# 任务引擎持久化数据（运行时生成）
+server/data/tasks.json
+
+# 运行日志
+*.log

@@ -8,6 +8,7 @@ export type TaskStatus =
   | 'queued'
   | 'running'
   | 'need_approval'
+  | 'need_plan_confirm'
   | 'completed'
   | 'failed'
   | 'cancelled';
@@ -44,6 +45,7 @@ export interface Task {
   plan?: any;
   events: TaskEvent[];
   approval: TaskApproval | null;
+  planConfirm?: any;
 }
 
 const DATA_DIR = path.resolve(__dirname, '../../data');
@@ -67,7 +69,7 @@ export class TaskStore {
         const maxSeq = t.events.reduce((m, e) => Math.max(m, e.seq), 0);
         this.seq.set(t.id, maxSeq);
         // 运行中的任务（进程重启）标记为 failed，避免悬挂
-        if (t.status === 'running' || t.status === 'queued' || t.status === 'need_approval') {
+        if (t.status === 'running' || t.status === 'queued' || t.status === 'need_approval' || t.status === 'need_plan_confirm') {
           t.status = 'failed';
           t.error = '服务重启，任务中断';
           t.approval = null;

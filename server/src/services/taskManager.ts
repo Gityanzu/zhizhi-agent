@@ -4,15 +4,23 @@ import { taskStore, Task, TaskStatus, TaskEvent, TaskApproval } from './taskStor
 import type { ApprovalRequest } from './agent';
 
 const APPROVAL_TIMEOUT_MS = 120000;
+const PLAN_CONFIRM_TIMEOUT_MS = 10 * 60 * 1000; // Plan 前置确认超时（10 分钟）
 
 interface PendingApproval {
   resolve: (v: boolean) => void;
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface PendingPlanConfirm {
+  resolve: (v: { confirmed: boolean; feedback?: string }) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 // 任务管理器：状态机 + 事件分发（供 SSE 订阅）+ HITL 挂起/恢复 + 取消。
 class TaskManager extends EventEmitter {
   private pending = new Map<string, PendingApproval>();
+  private pendingPlanConfirms = new Map<string, PendingPlanConfirm>();
+  private rememberedApprovals = new Set<string>();
   private cancelled = new Set<string>();
 
   constructor() {
@@ -104,6 +112,40 @@ class TaskManager extends EventEmitter {
     return true;
   }
 
+  // HITL：挂起任务等待 Plan 前置确认（前端调 /api/tasks/:id/plan-confirm 恢复）
+  requestPlanConfirm(taskId: string, plan: any): Promise<{ confirmed: boolean; feedback?: string }> {
+    if (this.cancelled.has(taskId)) return Promise.resolve({ confirmed: false });
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingPlanConfirms.delete(taskId);
+        this.setStatus(taskId, 'running', { planConfirm: null });
+        resolve({ confirmed: false });
+      }, PLAN_CONFIRM_TIMEOUT_MS);
+      this.pendingPlanConfirms.set(taskId, { resolve, timer });
+      taskStore.update(taskId, { status: 'need_plan_confirm', planConfirm: plan });
+      this.emitEvent(taskId, 'plan_proposed', { plan });
+    });
+  }
+
+  resolvePlanConfirm(taskId: string, confirmed: boolean, feedback?: string): boolean {
+    const p = this.pendingPlanConfirms.get(taskId);
+    if (!p) return false;
+    clearTimeout(p.timer);
+    this.pendingPlanConfirms.delete(taskId);
+    taskStore.update(taskId, { status: 'running', planConfirm: null });
+    p.resolve({ confirmed, feedback });
+    return true;
+  }
+
+  // “本次会话始终允许”：按 `${sessionId}:${kind}` 记住，内存态，重启即失效（与 chat.ts 内联一致）。
+  rememberApproval(sessionId: string | undefined, kind: string): void {
+    if (sessionId) this.rememberedApprovals.add(`${sessionId}:${kind}`);
+  }
+
+  isRemembered(sessionId: string | undefined, kind: string): boolean {
+    return sessionId ? this.rememberedApprovals.has(`${sessionId}:${kind}`) : false;
+  }
+
   requestCancel(id: string): void {
     this.cancelled.add(id);
     const p = this.pending.get(id);
@@ -112,9 +154,17 @@ class TaskManager extends EventEmitter {
       this.pending.delete(id);
       taskStore.update(id, { status: 'cancelled', approval: null });
       p.resolve(false);
-    } else {
-      this.setStatus(id, 'cancelled');
+      return;
     }
+    const pp = this.pendingPlanConfirms.get(id);
+    if (pp) {
+      clearTimeout(pp.timer);
+      this.pendingPlanConfirms.delete(id);
+      taskStore.update(id, { status: 'cancelled', planConfirm: null });
+      pp.resolve({ confirmed: false });
+      return;
+    }
+    this.setStatus(id, 'cancelled');
   }
 
   isCancelled(id: string): boolean {

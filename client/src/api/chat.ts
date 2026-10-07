@@ -1,4 +1,4 @@
-import { api, API_BASE_URL } from './request';
+import { api, API_BASE_URL, getToken } from './request';
 import type { SessionInfo, StreamChunk } from '@/types';
 
 // 发送消息（非流式）
@@ -37,7 +37,10 @@ export async function sendMessageStream(
 ): Promise<void> {
   const response = await fetch('/api/chat/stream', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+    },
     body: JSON.stringify({
       message, sessionId, mode, enableThinking,
       parentId: extra?.parentId,
@@ -92,6 +95,18 @@ export async function sendMessageStream(
   }
 }
 
+// 桌面端文件审批响应：用户点击 允许/拒绝/本次会话始终允许 后回调，解析后端阻塞的 Promise。
+export async function approveStream(requestId: string, approved: boolean, remember: boolean = false) {
+  const res = await api.post('/chat/stream/approve', { requestId, approved, remember });
+  return res.data;
+}
+
+// Plan 模式前置确认响应：用户点击 确认/修改后执行/取消 后回调，解析后端阻塞的 Promise。
+export async function planConfirmStream(requestId: string, confirmed: boolean, feedback?: string) {
+  const res = await api.post('/chat/stream/plan-confirm', { requestId, confirmed, feedback });
+  return res.data;
+}
+
 // 图片理解（多模态）
 export async function analyzeImage(
   imageBase64: string,
@@ -118,7 +133,10 @@ export async function streamChat(
   try {
     const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+      },
       body: JSON.stringify({ message, sessionId, mode }),
     });
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);

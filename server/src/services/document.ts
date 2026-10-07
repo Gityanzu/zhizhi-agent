@@ -70,6 +70,8 @@ export async function parseFile(filePath: string, mimeType: string): Promise<str
       return await parseWord(filePath);
     case '.md':
     case '.txt':
+    case '.csv':
+    case '.json':
       return fs.readFileSync(filePath, 'utf-8');
     default:
       throw new Error(`不支持的文件格式: ${ext}`);

@@ -131,6 +131,8 @@
         :message="msg"
         @regenerate="handleRegenerate(msg)"
         @edit="handleEdit"
+        @approve="handleApprove"
+        @plan-confirm="handlePlanConfirm"
       />
     </div>
     
@@ -227,7 +229,10 @@
                 <template #dropdown>
                   <el-dropdown-menu class="model-dropdown-menu">
                     <div class="dropdown-section">
-                      <div class="dropdown-section-title">技能</div>
+                      <div class="dropdown-section-title">
+                        技能
+                        <el-button size="small" text class="skill-reload-btn" :loading="reloadingSkills" @click.stop="handleReloadSkills">重载技能库</el-button>
+                      </div>
                       <el-dropdown-item 
                         v-for="skill in chatStore.skills" 
                         :key="skill.id"
@@ -236,6 +241,8 @@
                       >
                         <span class="item-icon">{{ skill.icon }}</span>
                         <span>{{ skill.name }}</span>
+                        <el-tag v-if="skill.source === 'file'" size="small" type="warning" effect="plain" class="skill-source-tag">库</el-tag>
+                        <el-icon class="skill-detail-btn" title="查看技能详情" @click.stop="openSkillDetail(skill.id)"><InfoFilled /></el-icon>
                         <el-icon v-if="selectedSkill === skill.id" class="check-icon"><Check /></el-icon>
                       </el-dropdown-item>
                     </div>
@@ -311,16 +318,20 @@
         <span v-if="chatStore.error" class="error-text">{{ chatStore.error }}</span>
       </div>
     </div>
+    <!-- 技能详情弹层（SKILL.md 正文 + references） -->
+    <SkillDetailDialog v-model="showSkillDetail" :skill-id="detailSkillId" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue'
-import { Service, Promotion, Picture, Close, Search, ArrowUp, ArrowDown, Share, Collection, Microphone, Document, Monitor, List, Cpu, Check, MagicStick, ChatDotRound, UserFilled } from '@element-plus/icons-vue'
+import { Service, Promotion, Picture, Close, Search, ArrowUp, ArrowDown, Share, Collection, Microphone, Document, Monitor, List, Cpu, Check, MagicStick, ChatDotRound, UserFilled, InfoFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
+import { reloadSkills } from '@/api/agent'
 import { useSpeech } from '@/composables/useSpeech'
 import MessageItem from './MessageItem.vue'
+import SkillDetailDialog from '@/components/common/SkillDetailDialog.vue'
 
 const chatStore = useChatStore()
 const inputText = ref('')
@@ -392,6 +403,34 @@ async function handleSkillChange(skillId: string) {
   } catch (e) {
     ElMessage.error('技能切换失败')
     if (chatStore.activeSkill) selectedSkill.value = chatStore.activeSkill.id
+  }
+}
+
+// 技能库：热加载与详情弹层
+const reloadingSkills = ref(false)
+const showSkillDetail = ref(false)
+const detailSkillId = ref('')
+
+function openSkillDetail(skillId: string) {
+  detailSkillId.value = skillId
+  showSkillDetail.value = true
+}
+
+async function handleReloadSkills() {
+  if (reloadingSkills.value) return
+  reloadingSkills.value = true
+  try {
+    const result = await reloadSkills()
+    if (result.success) {
+      await chatStore.loadSkills()
+      ElMessage.success(result.message || '技能库已重载')
+    } else {
+      ElMessage.error(result.error || '重载失败')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '重载失败')
+  } finally {
+    reloadingSkills.value = false
   }
 }
 
@@ -513,6 +552,16 @@ function handleRegenerate(msg: any) {
 // 编辑用户消息并重新生成
 async function handleEdit(messageId: string, newContent: string) {
   await chatStore.editMessage(messageId, newContent)
+}
+
+// 桌面端文件审批：允许/拒绝/本次会话始终允许
+async function handleApprove(messageId: string, approved: boolean, remember: boolean) {
+  await chatStore.respondApproval(messageId, approved, remember)
+}
+
+// Plan 模式前置确认：确认/修改后执行/取消
+async function handlePlanConfirm(messageId: string, confirmed: boolean, feedback?: string) {
+  await chatStore.respondPlan(messageId, confirmed, feedback)
 }
 
 // 切换分支
@@ -988,6 +1037,39 @@ watch(
   color: var(--text-tertiary, #9ca3af);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.skill-reload-btn {
+  font-size: 11px;
+  font-weight: 500;
+  height: auto;
+  padding: 0;
+  text-transform: none;
+}
+
+.skill-source-tag {
+  transform: scale(0.85);
+  margin-left: 4px;
+}
+
+.skill-detail-btn {
+  margin-left: auto;
+  color: var(--text-tertiary, #9ca3af);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+
+.skill-detail-btn:hover {
+  color: var(--primary-color, #6366f1);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.skill-detail-btn + .check-icon {
+  margin-left: 6px;
 }
 
 .item-icon {

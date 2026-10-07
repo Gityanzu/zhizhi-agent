@@ -720,7 +720,7 @@ export async function initDatabase(): Promise<boolean> {
 
     // 为常用查询添加复合索引
 
-    // sessions 表：按更新时间排序（sessions 不含 user_id 列，故不按用户维度建索引）
+    // sessions 表：按更新时间排序（兼容无 user_id 的存量/匿名会话全局排序）
     await client.query(`CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC)`);
     
     // messages 表：按会话和创建时间排序
@@ -743,6 +743,15 @@ export async function initDatabase(): Promise<boolean> {
     
     // db_connections 表：按类型
     await client.query(`CREATE INDEX IF NOT EXISTS idx_db_connections_type ON db_connections(type)`);
+
+    // 多用户隔离：sessions / folders 归属用户。users 表已在前面创建，此处才能安全地补列 + 外键。
+    // 存量无主数据 user_id 为 NULL（仅未登录/匿名可见），由迁移脚本按策略归属。
+    await client.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE`);
+    await client.query(`ALTER TABLE folders ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_sessions_user_updated ON sessions(user_id, updated_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_folders_user ON folders(user_id)`);
+    await client.query(`COMMENT ON COLUMN sessions.user_id IS '会话归属用户 ID，用于多用户隔离'`);
+    await client.query(`COMMENT ON COLUMN folders.user_id IS '文件夹归属用户 ID，用于多用户隔离'`);
 
     client.release();
     console.log('✅ PostgreSQL 数据库初始化完成');

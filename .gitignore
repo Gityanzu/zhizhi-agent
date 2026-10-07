@@ -36,3 +36,9 @@ pnpm-debug.log*
 
 # 测试报告/修复报告等生成文档，不入库
 docs/reports/
+
+# Agent 运行时输出目录（运行时生成，不入库）
+agent_output/
+
+# 错误日志
+*.err

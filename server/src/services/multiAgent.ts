@@ -198,39 +198,35 @@ async function runMultiAgentPipeline(
 
   const executionResults: string[] = [];
 
-  for (let i = 0; i < planSteps.length; i++) {
-    const step = planSteps[i];
-    step.status = 'running';
-
-    console.log(`\n[Executor] 执行步骤 ${step.id}: ${step.title}`);
-    pushTrace({ agent: 'Executor', action: 'step_start', content: `${step.id}. ${step.title}` });
-    steps.push({ type: 'step_start', content: `执行步骤 ${step.id}: ${step.title}` });
-
-    // 构建执行上下文
-    const context = `
-用户原始任务：${userMessage}
+  // 并行子代理调度：每个步骤作为独立子代理并发执行（上下文隔离），最后聚合结果。
+  // 对齐主流并行 agent（如 Claude Code / Qoder）的并发玩法；各子代理互不依赖中间结果，故可并行。
+  // 注意：并发子代理可能同时调用工具（如写文件/触发审批），请确保子任务之间彼此隔离。
+  const subTasks = planSteps.map((step) => {
+    const context = `用户原始任务：${userMessage}
 
 当前执行步骤：${step.id}. ${step.title}
 步骤描述：${step.description}
 
-已完成步骤的结果：
-${executionResults.map((r, idx) => `步骤${idx + 1}：${r.slice(0, 200)}`).join('\n')}
+请独立执行该子任务并给出结果（不要依赖其他步骤的产出）。`;
+    step.status = 'running';
+    console.log(`\n[Executor] 启动步骤 ${step.id}: ${step.title}`);
+    pushTrace({ agent: 'Executor', action: 'step_start', content: `${step.id}. ${step.title}` });
+    steps.push({ type: 'step_start', content: `执行步骤 ${step.id}: ${step.title}` });
+    // 每个子代理独立调用 agentRun（内部 runAgentLoop 无全局可变状态，可安全并发）
+    return agentRun(context, []);
+  });
 
-请执行当前步骤，给出结果。`;
+  const subResults = await Promise.all(subTasks);
 
-    // 调用单Agent执行（带工具）
-    const execResult = await agentRun(context, []);
+  subResults.forEach((execResult, i) => {
+    const step = planSteps[i];
     executionResults.push(execResult.answer);
     step.result = execResult.answer.slice(0, 500);
     step.status = 'completed';
-    
-    // 累计 Executor 的 token 用量
     if (execResult.tokenUsage) {
       totalPromptTokens += execResult.tokenUsage.promptTokens;
       totalCompletionTokens += execResult.tokenUsage.completionTokens;
     }
-
-    // 记录工具调用步骤
     if (execResult.steps) {
       for (const s of execResult.steps) {
         if (s.type === 'tool_call' || s.type === 'tool_result') {
@@ -238,11 +234,10 @@ ${executionResults.map((r, idx) => `步骤${idx + 1}：${r.slice(0, 200)}`).join
         }
       }
     }
-
     console.log(`[Executor] 步骤 ${step.id} 完成`);
     pushTrace({ agent: 'Executor', action: 'step_done', content: `${step.id}. ${step.title}` });
     steps.push({ type: 'step_done', content: `步骤 ${step.id} 完成` });
-  }
+  });
 
   // ========== 阶段3：Reviewer 审查 ==========
   console.log('\n[Reviewer Agent] 正在审查结果...');

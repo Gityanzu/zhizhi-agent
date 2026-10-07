@@ -67,6 +67,14 @@
             <label>语音朗读回答</label>
             <el-switch v-model="preferences.ttsEnabled" active-text="开启" inactive-text="关闭" />
           </div>
+          <div class="form-item" v-if="isDesktop">
+            <label>默认输出目录</label>
+            <div style="display:flex; gap:8px; align-items:center; width:100%">
+              <el-input v-model="preferences.agentOutputDir" placeholder="留空则使用默认目录（用户数据下 outputs）" style="flex:1" />
+              <el-button @click="chooseOutputDir">选择目录</el-button>
+            </div>
+            <div style="color:#909399; font-size:12px; margin-top:4px">Agent 生成文件（代码/文档等）的默认落点；读写本机文件时会弹窗请你确认。</div>
+          </div>
           <el-button type="primary" @click="savePreferences" :loading="saving">保存偏好</el-button>
         </div>
       </el-tab-pane>
@@ -153,16 +161,18 @@ import { User, Download, Warning } from '@element-plus/icons-vue';
 import axios from 'axios';
 import { useAuthStore } from '../../stores/auth';
 import { getUserApiKeys, addUserApiKey, deleteUserApiKey, setDefaultApiKey } from '../../api/userApiKey';
+import { useDesktop } from '../../composables/useDesktop';
 
 const router = useRouter();
 const authStore = useAuthStore();
+const { isDesktop, pickDirectory } = useDesktop();
 
 const props = withDefaults(defineProps<{
   defaultTab?: string
 }>(), {
   defaultTab: 'profile'
 });
-const emit = defineEmits<{ (e: 'close'): void }>();
+const emit = defineEmits<{ (e: 'close'): void; (e: 'saved'): void }>();
 
 const activeTab = ref(props.defaultTab || 'profile');
 const visible = ref(true);
@@ -179,7 +189,8 @@ const preferences = reactive({
   ttsEnabled: false,
   temperature: 0.7,
   topP: 1.0,
-  maxTokens: 2048
+  maxTokens: 2048,
+  agentOutputDir: ''
 });
 const apiKeys = ref<any[]>([]);
 const newKey = reactive({ provider: 'dashscope', name: '', key: '' });
@@ -197,6 +208,12 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
 function providerName(p: string) {
   const map: any = { dashscope: '阿里云百炼', openai: 'OpenAI', deepseek: 'DeepSeek', ollama: 'Ollama' };
   return map[p] || p;
+}
+
+// 桌面端：通过原生目录选择器设定 Agent 默认输出目录
+async function chooseOutputDir() {
+  const dir = await pickDirectory({ title: '选择默认输出目录', defaultPath: preferences.agentOutputDir || undefined });
+  if (dir) preferences.agentOutputDir = dir;
 }
 
 async function loadSettings() {

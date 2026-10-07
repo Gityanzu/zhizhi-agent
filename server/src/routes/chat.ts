@@ -1,10 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { agentRunStream, agentRun, type CustomAgentConfig } from '../services/agent';
+import { agentRunStream, agentRun, type CustomAgentConfig, type ApprovalRequest } from '../services/agent';
 import { ragQuery, ragQueryStream } from '../services/rag';
-import { planRun } from '../services/plan';
+import { planRun, generatePlanOnly, executePlan } from '../services/plan';
 import { multiAgentRun } from '../services/multiAgent';
-import { getSessionMessages, addMessage, createSession, getSessionInfo } from '../services/session';
+import { getSessionMessages, addMessage, createSession, getSessionInfo, assertSessionOwner } from '../services/session';
 import { getRelevantMemories, extractMemories } from '../services/memory';
 import { getActiveTemplate } from '../services/prompt';
 import { isLLMConfigured, getCurrentModel, setRequestParams, ModelParams, setRequestUserApiKey, getEffectiveApiKey } from '../services/llm';
@@ -17,6 +17,26 @@ import type { ChatMessage } from '../types';
 import { getAgent } from '../services/customAgent';
 import { optionalAuth, AuthRequest } from '../middleware/auth';
 import { getDefaultApiKey } from '../services/userApiKey';
+import { config } from '../config';
+
+// ===== 桌面端文件审批（内联对话卡）跨请求状态 =====
+// /stream 下发 approval_required 后阻塞等待；前端用户点击调 /stream/approve 解析对应 Promise。
+const pendingApprovals = new Map<string, { resolve: (v: boolean) => void; timer: ReturnType<typeof setTimeout>; kind: string; sessionId?: string }>();
+// “本次会话始终允许”：按 `${sessionId}:${kind}` 记住，内存态，重启即失效。
+const rememberedApprovals = new Set<string>();
+// Plan 模式前置确认：后端生成计划后下发 plan_proposed 事件并阻塞，等待前端 /stream/plan-confirm 回调。
+const pendingPlanConfirms = new Map<string, { resolve: (d: { confirmed: boolean; feedback?: string }) => void; timer: ReturnType<typeof setTimeout>; sessionId?: string }>();
+const PLAN_CONFIRM_TIMEOUT_MS = 10 * 60 * 1000; // 10 分钟
+function waitPlanConfirm(requestId: string, sid: string): Promise<{ confirmed: boolean; feedback?: string }> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingPlanConfirms.delete(requestId);
+      resolve({ confirmed: false });
+    }, PLAN_CONFIRM_TIMEOUT_MS);
+    pendingPlanConfirms.set(requestId, { resolve, timer, sessionId: sid });
+  });
+}
+const APPROVAL_TIMEOUT_MS = 120000;
 
 const router = Router();
 
@@ -290,8 +310,16 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
       actualMode = 'agent';
     }
 
-    // 获取或创建会话
-    const sid = sessionId || (await createSession()).id;
+    // 获取或创建会话（按用户隔离：复用他人会话直接拒绝）
+    let sid: string;
+    if (sessionId) {
+      if (!(await assertSessionOwner(sessionId, req.userId ?? null))) {
+        return res.status(403).json({ error: '无权访问该会话' });
+      }
+      sid = sessionId;
+    } else {
+      sid = (await createSession(undefined, undefined, undefined, req.userId ?? null)).id;
+    }
 
     // 获取历史消息（自动压缩长对话）
     const { history, compressed } = await getCompressedHistory(sid);
@@ -437,8 +465,18 @@ router.post('/stream', optionalAuth, async (req: AuthRequest, res: Response) => 
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
 
-    // 获取或创建会话
-    const sid = sessionId || (await createSession()).id;
+    // 获取或创建会话（按用户隔离：复用他人会话直接拒绝）
+    let sid: string;
+    if (sessionId) {
+      if (!(await assertSessionOwner(sessionId, req.userId ?? null))) {
+        res.write(`data: ${JSON.stringify({ type: 'error', content: '无权访问该会话' })}\n\n`);
+        res.end();
+        return;
+      }
+      sid = sessionId;
+    } else {
+      sid = (await createSession(undefined, undefined, undefined, req.userId ?? null)).id;
+    }
 
     // 分支标识：优先使用前端传入，否则生成新分支
     const branchId: string = clientBranchId || uuidv4();
@@ -465,30 +503,52 @@ router.post('/stream', optionalAuth, async (req: AuthRequest, res: Response) => 
     res.write(`data: ${JSON.stringify({ type: 'session_id', content: sid, mode: actualMode, branch_id: branchId, user_message_id: userMessageId })}\n\n`);
     
     if (actualMode === 'plan') {
-      // Plan模式：非流式返回完整结果
-      const planResult = await planRun(message, history);
-      
-      for (const step of planResult.steps) {
-        res.write(`data: ${JSON.stringify(step)}\n\n`);
+      // Plan 模式：先生成计划并请求用户确认（前置确认），确认后再执行。
+      const planSteps = await generatePlanOnly(message, history);
+      const planRequestId = uuidv4();
+      res.write(`data: ${JSON.stringify({ type: 'plan_proposed', requestId: planRequestId, plan: planSteps })}\n\n`);
+
+      // 阻塞等待用户确认（类似文件审批的挂起机制）
+      const decision = await waitPlanConfirm(planRequestId, sid);
+      if (!decision.confirmed) {
+        res.write(`data: ${JSON.stringify({ type: 'done', content: '已取消执行计划。' })}\n\n`);
+        await addMessage(sid, 'assistant', '已取消执行计划。', 'plan', {
+          plan: planSteps,
+          parentId: userMessageId,
+          branchId,
+        });
+        setRequestParams(null);
+        setRequestModelOverride(null);
+        res.end();
+        return;
       }
-      
+
+      // 用户确认：若附加了约束，追加为最后一步
+      const finalSteps = decision.feedback
+        ? [...planSteps, { id: planSteps.length + 1, title: '附加约束', description: decision.feedback, status: 'pending' as const }]
+        : planSteps;
+
+      const exec = await executePlan(finalSteps, message, history);
+      for (const s of exec.steps) {
+        res.write(`data: ${JSON.stringify(s)}\n\n`);
+      }
+
       // 模拟流式输出最终回答
-      const answer = planResult.finalAnswer;
+      const answer = exec.finalAnswer;
       const chunks = answer.match(/.{1,5}/g) || [answer];
       for (const chunk of chunks) {
         res.write(`data: ${JSON.stringify({ type: 'token', content: chunk, sources: [] })}\n\n`);
         await new Promise(r => setTimeout(r, 20));
       }
-      
-      res.write(`data: ${JSON.stringify({ type: 'done', content: '', plan: planResult.plan })}\n\n`);
+
+      res.write(`data: ${JSON.stringify({ type: 'done', content: '', plan: finalSteps, tokenUsage: exec.tokenUsage })}\n\n`);
       await addMessage(sid, 'assistant', answer, 'plan', {
-        plan: planResult.plan,
-        tokenUsage: planResult.tokenUsage,
+        plan: finalSteps,
+        tokenUsage: exec.tokenUsage,
         parentId: userMessageId,
         branchId,
       });
       setRequestParams(null);
-    setRequestModelOverride(null);
       setRequestModelOverride(null);
       res.end();
       return;
@@ -590,7 +650,44 @@ router.post('/stream', optionalAuth, async (req: AuthRequest, res: Response) => 
         };
       }
     }
-    const stream = agentRunStream(message, history, customAgentConfig, { collectionIds: Array.isArray(collectionIds) ? collectionIds : undefined });
+    // 桌面端文件审批回调：命中"本次会话始终允许"直接放行；否则下发 approval_required 并阻塞等待。
+    const isDesktop = config.isDesktop;
+    const requestApproval = (areq: ApprovalRequest): Promise<boolean> => {
+      if (rememberedApprovals.has(`${sid}:${areq.kind}`)) return Promise.resolve(true);
+      return new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+          pendingApprovals.delete(areq.requestId);
+          resolve(false);
+        }, APPROVAL_TIMEOUT_MS);
+        pendingApprovals.set(areq.requestId, { resolve, timer, kind: areq.kind, sessionId: sid });
+        res.write(`data: ${JSON.stringify({ type: 'approval_required', ...areq })}\n\n`);
+      });
+    };
+
+    // 客户端断开时清理未决审批，避免 Promise/定时器泄漏
+    req.on('close', () => {
+      for (const [id, p] of pendingApprovals.entries()) {
+        if (p.sessionId === sid) {
+          clearTimeout(p.timer);
+          pendingApprovals.delete(id);
+          p.resolve(false);
+        }
+      }
+      for (const [id, p] of pendingPlanConfirms.entries()) {
+        if (p.sessionId === sid) {
+          clearTimeout(p.timer);
+          pendingPlanConfirms.delete(id);
+          p.resolve({ confirmed: false });
+        }
+      }
+    });
+
+    const stream = agentRunStream(message, history, customAgentConfig, {
+      collectionIds: Array.isArray(collectionIds) ? collectionIds : undefined,
+      isDesktop,
+      sessionId: sid,
+      requestApproval,
+    });
     
     let fullAnswer = '';
     let agentTokenUsage: any = null;
@@ -631,6 +728,42 @@ router.post('/stream', optionalAuth, async (req: AuthRequest, res: Response) => 
     res.write(`data: ${JSON.stringify({ type: 'error', content: error instanceof Error ? error.message : String(error) })}\n\n`);
     res.end();
   }
+});
+
+// 文件审批响应（桌面端）：前端用户点击 允许/拒绝/本次会话始终允许 后回调，解析对应 Promise。
+// requestId 为不可猜的 UUID，足以防跨请求误触；无需额外鉴权。
+router.post('/stream/approve', async (req: Request, res: Response) => {
+  const { requestId, approved, remember } = req.body || {};
+  if (!requestId || typeof requestId !== 'string') {
+    return res.status(400).json({ error: 'requestId 不能为空' });
+  }
+  const pending = pendingApprovals.get(requestId);
+  if (!pending) {
+    return res.status(404).json({ error: '审批请求不存在或已超时' });
+  }
+  clearTimeout(pending.timer);
+  pendingApprovals.delete(requestId);
+  if (approved && remember && pending.sessionId) {
+    rememberedApprovals.add(`${pending.sessionId}:${pending.kind}`);
+  }
+  pending.resolve(!!approved);
+  res.json({ ok: true });
+});
+
+// Plan 模式前置确认响应：用户点击"确认执行/修改后执行"后回调，解析后端阻塞的 Promise。
+router.post('/stream/plan-confirm', async (req: Request, res: Response) => {
+  const { requestId, confirmed, feedback } = req.body || {};
+  if (!requestId || typeof requestId !== 'string') {
+    return res.status(400).json({ error: 'requestId 不能为空' });
+  }
+  const pending = pendingPlanConfirms.get(requestId);
+  if (!pending) {
+    return res.status(404).json({ error: '计划确认请求不存在或已超时' });
+  }
+  clearTimeout(pending.timer);
+  pendingPlanConfirms.delete(requestId);
+  pending.resolve({ confirmed: !!confirmed, feedback: typeof feedback === 'string' ? feedback : undefined });
+  res.json({ ok: true });
 });
 
 // 图片理解接口（多模态，使用 qwen3.5-ocr 模型）
@@ -675,8 +808,11 @@ router.post('/vision', optionalAuth, async (req: AuthRequest, res: Response) => 
     const response = await visionLLM.invoke([new HumanMessage({ content })]);
     const answer = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
     
-    // 如果有会话ID，保存到会话历史
+    // 如果有会话ID，先校验归属再写入历史（防越权写他人会话）
     if (sessionId) {
+      if (!(await assertSessionOwner(sessionId, req.userId ?? null))) {
+        return res.status(403).json({ error: '无权访问该会话' });
+      }
       await addMessage(sessionId, 'user', `[图片] ${question || '描述图片'}`);
       await addMessage(sessionId, 'assistant', answer);
     }

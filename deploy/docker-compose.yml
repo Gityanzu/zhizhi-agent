@@ -1,0 +1,93 @@
+# ===== 智知应用栈（本机即"临时服务器"；租服务器后同一份文件跑在远程） =====
+# 说明：向量库为内嵌 LocalVectorStore（持久化到卷），无需独立 Chroma 服务。
+# 用法（仓库根目录执行）：docker compose -f deploy/docker-compose.yml up -d --build
+name: zhizhi-agent
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: zhizhi-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DATABASE:-zhizhi_agent}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DATABASE:-zhizhi_agent}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: zhizhi-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  server:
+    image: ${SERVER_IMAGE:-zhizhi-server:local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.server
+    container_name: zhizhi-server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen3.8-flash}
+      EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-text-embedding-v2}
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DATABASE: ${PG_DATABASE:-zhizhi_agent}
+      PG_USER: ${PG_USER:-postgres}
+      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      UPLOAD_DIR: /app/data/uploads
+      CHROMA_DIR: /app/data/chroma
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+
+  client:
+    image: ${CLIENT_IMAGE:-zhizhi-client:local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.client
+    container_name: zhizhi-client
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  pg_data:
+  redis_data:
+  app_data:

@@ -15,9 +15,11 @@
  * 额外收益：渲染层与接口变成同源，彻底绕开 CORS 白名单问题。
  */
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { DIST_DIR, BACKEND_HOST, BACKEND_PORT } = require('./paths.cjs');
+const { getRemoteTarget } = require('./serverConfig.cjs');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -66,22 +68,50 @@ function sendFile(res, filePath) {
   stream.pipe(res);
 }
 
-/** 反向代理到本地后端；SSE 场景必须原样透传、不能缓冲 */
+/**
+ * 反向代理到后端；SSE 场景必须原样透传、不能缓冲。
+ * 目标由服务器配置决定：
+ *   - 本地模式 → 127.0.0.1:BACKEND_PORT（内嵌后端）
+ *   - 远程模式 → 用户配置的服务器地址（http/https）
+ * 每个请求实时读取配置，用户在设置页保存后无需重启即生效。
+ */
 function proxyToBackend(req, res) {
-  const proxyReq = http.request(
-    {
+  const remote = getRemoteTarget();
+  let transport = http;
+  let options;
+  let describe;
+
+  if (remote) {
+    const target = new URL(remote);
+    const isTls = target.protocol === 'https:';
+    transport = isTls ? https : http;
+    options = {
+      host: target.hostname,
+      port: target.port || (isTls ? 443 : 80),
+      method: req.method,
+      path: req.url,
+      // 远程虚拟主机（nginx）按 Host 路由，必须换成目标地址的 host
+      headers: { ...req.headers, host: target.host },
+      // 远程 https 证书可能对应域名而非 IP，留默认 SNI（取 host）即可
+      servername: /^[\d.]+$/.test(target.hostname) ? undefined : target.hostname,
+    };
+    describe = remote;
+  } else {
+    options = {
       host: BACKEND_HOST,
       port: BACKEND_PORT,
       method: req.method,
       path: req.url,
       headers: { ...req.headers, host: `${BACKEND_HOST}:${BACKEND_PORT}` },
-    },
-    (proxyRes) => {
-      // 透传状态码与响应头（含 SSE 的 text/event-stream）
-      res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
-      proxyRes.pipe(res);
-    }
-  );
+    };
+    describe = `${BACKEND_HOST}:${BACKEND_PORT}`;
+  }
+
+  const proxyReq = transport.request(options, (proxyRes) => {
+    // 透传状态码与响应头（含 SSE 的 text/event-stream）
+    res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
 
   proxyReq.on('error', (err) => {
     if (res.headersSent) return;
@@ -89,7 +119,7 @@ function proxyToBackend(req, res) {
     res.end(
       JSON.stringify({
         error: 'BACKEND_UNAVAILABLE',
-        message: `本地后端未就绪（${BACKEND_HOST}:${BACKEND_PORT}）`,
+        message: remote ? `远程服务器不可达（${describe}）` : `本地后端未就绪（${describe}）`,
         detail: err.message,
       })
     );

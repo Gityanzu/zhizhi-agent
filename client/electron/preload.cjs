@@ -51,6 +51,7 @@ const desktop = {
   /* 本地文件：桌面端相比 Web 端的实质增量 */
   file: {
     pickFiles: (options) => invoke('dialog:pickFiles', options),
+    pickDirectory: (options) => invoke('dialog:pickDirectory', options),
     readAsBase64: (filePath) => invoke('fs:readAsBase64', filePath),
     saveExport: (payload) => invoke('dialog:saveExport', payload),
     showInFolder: (filePath) => invoke('shell:showItemInFolder', filePath),
@@ -78,6 +79,13 @@ const desktop = {
     restart: () => invoke('backend:restart'),
     ping: () => invoke('backend:ping'),
     onStatus: (cb) => subscribe('backend:status', cb),
+  },
+
+  /* 服务器连接：本地内嵌后端 ↔ 远程后端 */
+  server: {
+    getConfig: () => invoke('serverConfig:get'),
+    setConfig: (config) => invoke('serverConfig:set', config),
+    test: (url) => invoke('serverConfig:test', url),
   },
 
   /* 主进程事件 */

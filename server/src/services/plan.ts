@@ -151,35 +151,25 @@ export async function planRun(userMessage: string, chatHistory: ChatMessage[]): 
   }
 }
 
-// Plan模式流水线（内部实现）
-async function runPlanPipeline(
+// 仅生成计划（供前端 Plan 模式前置确认：先展示计划，用户确认后再执行）
+export async function generatePlanOnly(userMessage: string, chatHistory: ChatMessage[]): Promise<PlanStep[]> {
+  const { steps } = await generatePlan(userMessage, chatHistory);
+  return steps;
+}
+
+// 执行已确认的计划（逐步执行 + 汇总），供流式 plan 模式在两阶段中使用
+export async function executePlan(
+  planSteps: PlanStep[],
   userMessage: string,
-  chatHistory: ChatMessage[],
-  steps: Array<{ type: string; content: string }>
-): Promise<PlanResult> {
-  
-  // 累计 token 用量
+  chatHistory: ChatMessage[]
+): Promise<{ steps: Array<{ type: string; content: string }>; finalAnswer: string; tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
+  const steps: Array<{ type: string; content: string }> = [];
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
-  
-  // 第一步：生成规划
-  steps.push({ type: 'planning', content: '正在分析任务，制定执行计划...' });
-  
-  const { steps: planSteps, summary, tokenUsage: planTokens } = await generatePlan(userMessage, chatHistory);
-  totalPromptTokens += planTokens.promptTokens;
-  totalCompletionTokens += planTokens.completionTokens;
-  
-  steps.push({ 
-    type: 'plan_created', 
-    content: `已制定 ${planSteps.length} 步执行计划${summary ? '：' + summary : ''}`,
-  });
-  
-  // 第二步：逐步执行
   let context = '';
   for (const step of planSteps) {
     step.status = 'running';
-    steps.push({ type: 'step_start', content: `执行步骤 ${step.id}：${step.title}` });
-    
+    steps.push({ type: 'step_start', content: `执行步骤 ${step.id}: ${step.title}` });
     try {
       const { result, tokenUsage: stepTokens } = await executeStep(step, context);
       totalPromptTokens += stepTokens.promptTokens;
@@ -194,21 +184,32 @@ async function runPlanPipeline(
       steps.push({ type: 'step_error', content: `步骤 ${step.id} 失败：${step.result}` });
     }
   }
-  
-  // 第三步：生成最终回答
   steps.push({ type: 'summarizing', content: '正在汇总结果...' });
   const { answer: finalAnswer, tokenUsage: finalTokens } = await generateFinalAnswer(userMessage, planSteps);
   totalPromptTokens += finalTokens.promptTokens;
   totalCompletionTokens += finalTokens.completionTokens;
-  
+  return {
+    steps,
+    finalAnswer,
+    tokenUsage: { promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens, totalTokens: totalPromptTokens + totalCompletionTokens },
+  };
+}
+
+// Plan模式流水线（内部实现）
+async function runPlanPipeline(
+  userMessage: string,
+  chatHistory: ChatMessage[],
+  steps: Array<{ type: string; content: string }>
+): Promise<PlanResult> {
+  steps.push({ type: 'planning', content: '正在分析任务，制定执行计划...' });
+  const planSteps = await generatePlanOnly(userMessage, chatHistory);
+  steps.push({ type: 'plan_created', content: `已制定 ${planSteps.length} 步执行计划` });
+  const exec = await executePlan(planSteps, userMessage, chatHistory);
+  for (const s of exec.steps) steps.push(s);
   return {
     plan: planSteps,
-    finalAnswer,
+    finalAnswer: exec.finalAnswer,
     steps,
-    tokenUsage: {
-      promptTokens: totalPromptTokens,
-      completionTokens: totalCompletionTokens,
-      totalTokens: totalPromptTokens + totalCompletionTokens,
-    },
+    tokenUsage: exec.tokenUsage,
   };
 }

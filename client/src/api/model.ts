@@ -1,4 +1,4 @@
-import { api, API_BASE_URL } from './request';
+import { api, API_BASE_URL, getToken } from './request';
 
 // ===== 模型相关 =====
 export async function getCurrentModel() {
@@ -38,7 +38,10 @@ export async function compareChat(
 ): Promise<void> {
   const response = await fetch('/api/chat/compare', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}),
+    },
     body: JSON.stringify({ message, models, modelParams }),
     signal,
   });

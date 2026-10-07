@@ -17,6 +17,28 @@ export interface ChatMessage {
   image?: string; // 图片消息的 base64 数据
   parentId?: string; // 父消息id（对话分支）
   branchId?: string; // 所属分支
+  pendingApproval?: PendingApproval; // 桌面端文件审批卡（仅流式过程中挂到当前助手消息）
+  pendingPlan?: PendingPlan; // Plan 模式前置确认卡（先展示计划，用户确认后再执行）
+}
+
+// 桌面端文件审批（内联对话卡）
+export interface PendingApproval {
+  requestId: string;
+  kind: 'read' | 'write';
+  path: string;
+  inRoot: boolean;
+  oldContent?: string;
+  newContent?: string;
+  decided?: boolean; // 用户已点击（禁用按钮，避免重复提交）
+}
+
+// Plan 模式前置确认（内联对话卡）
+export interface PendingPlan {
+  requestId: string;
+  plan: PlanStep[];
+  decided?: boolean; // 用户已点击
+  confirmed?: boolean; // 最终是否确认执行
+  feedback?: string; // 用户附加的约束/修改
 }
 
 // 多Agent执行轨迹
@@ -95,8 +117,15 @@ export interface BranchInfo {
 
 // SSE 流式响应数据
 export interface StreamChunk {
-  type: 'session_id' | 'thinking' | 'tool_call' | 'tool_result' | 'token' | 'retrieval' | 'done' | 'error' | 'planning' | 'plan_created' | 'step_start' | 'step_done' | 'step_error' | 'summarizing' | 'qa';
+  type: 'session_id' | 'thinking' | 'tool_call' | 'tool_result' | 'token' | 'retrieval' | 'done' | 'error' | 'planning' | 'plan_created' | 'step_start' | 'step_done' | 'step_error' | 'summarizing' | 'qa' | 'agent_progress' | 'agent_trace' | 'approval_required' | 'plan_proposed';
   content: string;
+  // approval_required 事件携带的字段（桌面端文件审批）
+  requestId?: string;
+  kind?: 'read' | 'write';
+  path?: string;
+  inRoot?: boolean;
+  oldContent?: string;
+  newContent?: string;
   toolCall?: {
     name: string;
     arguments: Record<string, any>;

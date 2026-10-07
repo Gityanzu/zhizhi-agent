@@ -12,12 +12,14 @@
 import { getLLM } from '../services/llm';
 import { tools, executeTool } from '../services/agent';
 import { usePostgres, query } from '../db';
+import * as path from 'path';
 import {
   SystemMessage,
   HumanMessage,
   AIMessage,
   ToolMessage,
 } from '@langchain/core/messages';
+import { loadSkillsFromLibrary, readSkillReferences, LoadedFileSkill } from './loader';
 
 // ==================== Skill 定义 ====================
 
@@ -30,6 +32,7 @@ export interface SkillDefinition {
   systemPrompt: string; // 该Skill的系统提示词
   allowedTools: string[]; // 允许使用的工具列表（空表示全部可用）
   examples: Array<{ input: string; output: string }>; // 示例
+  source?: 'builtin' | 'file' | 'custom'; // 来源：代码内置 / SKILL.md 文件库 / 用户自定义（PG）
 }
 
 // ==================== 内置 Skill 列表 ====================
@@ -195,15 +198,88 @@ export const BUILTIN_SKILLS: SkillDefinition[] = [
 export class SkillManager {
   private skills: Map<string, SkillDefinition> = new Map();
   private activeSkillId: string = 'general';
+  private fileSkills: Map<string, LoadedFileSkill> = new Map();
 
   constructor() {
     // 注册内置 Skill
     for (const skill of BUILTIN_SKILLS) {
-      this.skills.set(skill.id, skill);
+      this.skills.set(skill.id, { ...skill, source: 'builtin' });
     }
+
+    // 注册 SKILL.md 文件库技能（同步，同 id 覆盖内置）
+    this.registerFileSkills();
     
-    // 从数据库加载用户自定义 Skill
+    // 从数据库加载用户自定义 Skill（不覆盖文件库同 id 技能）
     this.loadCustomSkills().catch((err: any) => console.error('加载自定义 Skill 失败:', err));
+  }
+
+  // ==================== 文件库（SKILL.md） ====================
+
+  // 技能库搜索目录：内置库 + 桌面端用户目录 + 环境变量指定目录
+  private skillLibraryDirs(): string[] {
+    const dirs = [path.resolve(__dirname, '../../skills-library')];
+    // 桌面端：userData/skills 下的用户自装技能
+    if (process.env.ZHI_USER_DATA) {
+      dirs.push(path.join(process.env.ZHI_USER_DATA, 'skills'));
+    }
+    // 部署时可指定外部技能库
+    if (process.env.ZHI_SKILLS_DIR) {
+      dirs.push(process.env.ZHI_SKILLS_DIR);
+    }
+    return dirs;
+  }
+
+  // 扫描并注册全部文件型技能，返回注册数
+  private registerFileSkills(): number {
+    let count = 0;
+    for (const dir of this.skillLibraryDirs()) {
+      for (const loaded of loadSkillsFromLibrary(dir)) {
+        this.fileSkills.set(loaded.skill.id, loaded);
+        this.skills.set(loaded.skill.id, loaded.skill);
+        count++;
+      }
+    }
+    if (count > 0) {
+      console.log(`已加载 ${count} 个文件库 Skill（SKILL.md）`);
+    }
+    return count;
+  }
+
+  // 热加载：清除旧文件技能后重扫（改 SKILL.md 不需重启服务）
+  async reloadSkills(): Promise<number> {
+    for (const id of this.fileSkills.keys()) {
+      this.skills.delete(id);
+    }
+    this.fileSkills.clear();
+    const count = this.registerFileSkills();
+    // 顺带刷新 PG 自定义技能
+    await this.loadCustomSkills().catch(() => { /* 忽略 */ });
+    // 重置激活指针（仅当重新注册后仍不存在时），避免被删除的技能残留
+    if (!this.skills.has(this.activeSkillId)) {
+      this.activeSkillId = 'general';
+    }
+    return count;
+  }
+
+  // 技能详情：文件型返回正文 + references 深度文档（渐进披露）
+  getSkillDetail(skillId: string): {
+    skill: SkillDefinition;
+    body?: string;
+    version?: string;
+    references: Array<{ name: string; content: string }>;
+  } | null {
+    const skill = this.skills.get(skillId);
+    if (!skill) return null;
+    const loaded = this.fileSkills.get(skillId);
+    if (!loaded) {
+      return { skill, references: [] };
+    }
+    return {
+      skill,
+      body: loaded.body,
+      version: loaded.version,
+      references: readSkillReferences(loaded),
+    };
   }
   
   // 从数据库加载自定义 Skill
@@ -226,8 +302,12 @@ export class SkillManager {
           systemPrompt: row.system_prompt,
           allowedTools: row.allowed_tools || [],
           examples: row.examples || [],
+          source: 'custom',
         };
-        this.skills.set(skill.id, skill);
+        // 文件库技能优先，PG 自定义不覆盖同 id 文件技能
+        if (!this.fileSkills.has(skill.id)) {
+          this.skills.set(skill.id, skill);
+        }
       }
       
       console.log(`已加载 ${result.rows.length} 个自定义 Skill`);

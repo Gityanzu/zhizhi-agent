@@ -109,11 +109,12 @@ function mapSessionRow(row: any): SessionInfo {
     collectionIds: Array.isArray(row.collection_ids) ? row.collection_ids : [],
     mode: row.mode || 'agent',
     model: row.model || null,
+    userId: row.user_id || null,
   };
 }
 
 // 创建新会话
-export async function createSession(title?: string, mode?: string, model?: string): Promise<SessionInfo> {
+export async function createSession(title?: string, mode?: string, model?: string, userId?: string | null): Promise<SessionInfo> {
   const id = uuidv4();
   const now = new Date().toISOString();
 
@@ -127,12 +128,13 @@ export async function createSession(title?: string, mode?: string, model?: strin
     isPinned: false,
     tags: [],
     currentBranchId: null,
+    userId: userId || null,
   };
 
   if (usePostgres) {
     await query(
-      'INSERT INTO sessions (id, title, mode, model, created_at, updated_at, message_count, folder_id, is_pinned, tags) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
-      [id, info.title, mode || 'agent', model || null, now, now, 0, null, false, '[]']
+      'INSERT INTO sessions (id, title, mode, model, created_at, updated_at, message_count, folder_id, is_pinned, tags, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+      [id, info.title, mode || 'agent', model || null, now, now, 0, null, false, '[]', userId || null]
     );
   } else {
     sessions.set(id, { info, messages: [] });
@@ -300,6 +302,19 @@ export async function addMessage(
   return messageId;
 }
 
+// 获取消息所属会话 ID（用于路由层对消息编辑做归属校验，防 IDOR）
+export async function getMessageSessionId(messageId: string): Promise<string | null> {
+  if (usePostgres) {
+    const result = await query('SELECT session_id FROM messages WHERE id = $1', [messageId]);
+    return result.rows[0]?.session_id || null;
+  } else {
+    for (const [sid, session] of sessions.entries()) {
+      if (session.messages.some(m => m.id === messageId)) return sid;
+    }
+    return null;
+  }
+}
+
 // 编辑消息内容
 export async function editMessage(messageId: string, content: string): Promise<boolean> {
   if (usePostgres) {
@@ -332,11 +347,20 @@ export async function switchBranch(sessionId: string, branchId: string): Promise
   }
 }
 
-// 获取所有会话（支持按文件夹/标签筛选，置顶优先排序）
-export async function getAllSessions(opts?: { folderId?: string | null; tag?: string }): Promise<SessionInfo[]> {
+// 获取所有会话（按用户隔离 + 支持按文件夹/标签筛选，置顶优先排序）
+// userId 语义：传入具体用户 ID 只看该用户会话；传 null/undefined（未登录）只看 user_id IS NULL 的匿名桶，
+// 二者互不可见。路由层始终传 req.userId ?? null。
+export async function getAllSessions(opts?: { userId?: string | null; folderId?: string | null; tag?: string }): Promise<SessionInfo[]> {
+  const userId = opts?.userId ?? null;
   if (usePostgres) {
-    let sql = 'SELECT id, title, created_at, updated_at, message_count, folder_id, is_pinned, tags, current_branch_id, collection_ids, mode, model FROM sessions WHERE 1=1';
+    let sql = 'SELECT id, title, created_at, updated_at, message_count, folder_id, is_pinned, tags, current_branch_id, collection_ids, mode, model, user_id FROM sessions WHERE 1=1';
     const params: any[] = [];
+    if (userId) {
+      params.push(userId);
+      sql += ` AND user_id = $${params.length}`;
+    } else {
+      sql += ` AND user_id IS NULL`;
+    }
     if (opts?.folderId) {
       params.push(opts.folderId);
       sql += ` AND folder_id = $${params.length}`;
@@ -352,6 +376,8 @@ export async function getAllSessions(opts?: { folderId?: string | null; tag?: st
     return result.rows.map(mapSessionRow);
   } else {
     let list = Array.from(sessions.values()).map(s => s.info);
+    // JSON 模式同样按归属严格隔离：登录用户只看自己，匿名只看 userId 为空
+    list = list.filter(s => (s.userId || null) === userId);
     if (opts?.folderId) {
       list = list.filter(s => s.folderId === opts.folderId);
     } else if (opts?.folderId === null) {
@@ -368,11 +394,27 @@ export async function getAllSessions(opts?: { folderId?: string | null; tag?: st
   }
 }
 
+// 校验会话归属：当前登录用户(userId)是否拥有该会话。
+// 严格隔离：会话 user_id 为 NULL 时仅未登录(userId 也为空)可访问；否则必须相等。
+export async function assertSessionOwner(sessionId: string, userId?: string | null): Promise<boolean> {
+  if (usePostgres) {
+    const result = await query('SELECT user_id FROM sessions WHERE id = $1', [sessionId]);
+    if (result.rows.length === 0) return false;
+    const owner = result.rows[0].user_id || null;
+    return owner === (userId || null);
+  } else {
+    const session = sessions.get(sessionId);
+    if (!session) return false;
+    const owner = session.info.userId || null;
+    return owner === (userId || null);
+  }
+}
+
 // 获取会话信息
 export async function getSessionInfo(sessionId: string): Promise<SessionInfo | null> {
   if (usePostgres) {
     const result = await query(
-      'SELECT id, title, created_at, updated_at, message_count, folder_id, is_pinned, tags, current_branch_id, collection_ids, mode, model FROM sessions WHERE id = $1',
+      'SELECT id, title, created_at, updated_at, message_count, folder_id, is_pinned, tags, current_branch_id, collection_ids, mode, model, user_id FROM sessions WHERE id = $1',
       [sessionId]
     );
     if (result.rows.length === 0) return null;
@@ -416,28 +458,50 @@ export async function clearSession(sessionId: string): Promise<boolean> {
 
 // ============ 文件夹 CRUD ============
 
-export async function createFolder(name: string, icon?: string): Promise<Folder> {
+export async function createFolder(name: string, icon?: string, userId?: string | null): Promise<Folder> {
   const id = uuidv4();
   const now = new Date().toISOString();
   if (usePostgres) {
-    await query('INSERT INTO folders (id, name, icon, sort_order, created_at) VALUES ($1, $2, $3, $4, $5)', [
-      id, name, icon || '📁', 0, now,
+    await query('INSERT INTO folders (id, name, icon, sort_order, created_at, user_id) VALUES ($1, $2, $3, $4, $5, $6)', [
+      id, name, icon || '📁', 0, now, userId || null,
     ]);
   } else {
-    folders.set(id, { id, name, icon: icon || '📁', sortOrder: 0, createdAt: now });
+    folders.set(id, { id, name, icon: icon || '📁', sortOrder: 0, createdAt: now, userId: userId || null });
     saveToFile();
   }
-  return { id, name, icon: icon || '📁', sortOrder: 0, createdAt: now };
+  return { id, name, icon: icon || '📁', sortOrder: 0, createdAt: now, userId: userId || null };
 }
 
-export async function getAllFolders(): Promise<Folder[]> {
+export async function getAllFolders(userId?: string | null): Promise<Folder[]> {
+  const uid = userId ?? null;
   if (usePostgres) {
-    const result = await query('SELECT id, name, icon, sort_order, created_at FROM folders ORDER BY sort_order ASC, created_at ASC');
+    let sql = 'SELECT id, name, icon, sort_order, created_at, user_id FROM folders';
+    const params: any[] = [];
+    if (uid) { params.push(uid); sql += ` WHERE user_id = $${params.length}`; }
+    else { sql += ` WHERE user_id IS NULL`; }
+    sql += ' ORDER BY sort_order ASC, created_at ASC';
+    const result = await query(sql, params);
     return result.rows.map(r => ({
-      id: r.id, name: r.name, icon: r.icon, sortOrder: r.sort_order, createdAt: r.created_at,
+      id: r.id, name: r.name, icon: r.icon, sortOrder: r.sort_order, createdAt: r.created_at, userId: r.user_id || null,
     }));
   } else {
-    return Array.from(folders.values()).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    return Array.from(folders.values())
+      .filter(f => (f.userId || null) === uid)
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  }
+}
+
+// 校验文件夹归属：与 assertSessionOwner 同样严格隔离语义
+export async function assertFolderOwner(folderId: string, userId?: string | null): Promise<boolean> {
+  const uid = userId ?? null;
+  if (usePostgres) {
+    const result = await query('SELECT user_id FROM folders WHERE id = $1', [folderId]);
+    if (result.rows.length === 0) return false;
+    return (result.rows[0].user_id || null) === uid;
+  } else {
+    const folder = folders.get(folderId);
+    if (!folder) return false;
+    return (folder.userId || null) === uid;
   }
 }
 

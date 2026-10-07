@@ -117,6 +117,29 @@ try {
     `);
     console.log('  ✅ 创建login_logs表');
 
+    // 存量旧表兼容：CREATE TABLE IF NOT EXISTS 不会给已存在的表补列，
+    // 旧库的 login_logs 缺 error_message 等字段会导致登录日志写入报 42703，
+    // 这里用幂等 ALTER 把代码（loginLogger.ts INSERT）依赖的列补齐。
+    const loginLogColumns = [
+      "user_id UUID",
+      "username VARCHAR(50)",
+      "ip_address VARCHAR(45)",
+      "user_agent TEXT",
+      "location VARCHAR(200)",
+      "status VARCHAR(20) DEFAULT 'success'",
+      "error_message TEXT",
+      "device_id VARCHAR(100)",
+      "device_name VARCHAR(100)",
+      "device_type VARCHAR(20)",
+      "platform VARCHAR(50)",
+      "browser VARCHAR(50)",
+      "created_at TIMESTAMP DEFAULT NOW()",
+    ];
+    for (const col of loginLogColumns) {
+      await query(`ALTER TABLE login_logs ADD COLUMN IF NOT EXISTS ${col}`);
+    }
+    console.log('  ✅ login_logs 字段补齐（幂等 ALTER）');
+
     // 创建索引
     await query(`CREATE INDEX IF NOT EXISTS idx_login_logs_user_id ON login_logs(user_id)`);
     await query(`CREATE INDEX IF NOT EXISTS idx_login_logs_ip_address ON login_logs(ip_address)`);

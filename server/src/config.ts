@@ -12,6 +12,9 @@ dotenv.config();
 
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
+
+  // 桌面模式探测：Electron 托管后端会注入 ZHI_USER_DATA，据此判定是否放开本机文件系统能力。
+  isDesktop: !!process.env.ZHI_USER_DATA,
   
   llm: {
     apiKey: process.env.LLM_API_KEY || '',
@@ -65,5 +68,16 @@ export const config = {
   
   agent: {
     maxIterations: 5,
+    // Agent 文件工具的默认输出根目录。桌面端由 Electron 注入 ZHI_AGENT_OUTPUT_DIR（用户可在设置里改），
+    // 未注入时回退到 ZHI_USER_DATA/outputs，再回退到仓库内 agent_output。
+    outputDir: process.env.ZHI_AGENT_OUTPUT_DIR
+      || (process.env.ZHI_USER_DATA
+        ? path.join(process.env.ZHI_USER_DATA, 'outputs')
+        : path.resolve(__dirname, '../../agent_output')),
+    // 真实代码工作区（可选）。设置后，桌面端（或 allowWebWorkspace=true 的 Web 端）可在此目录读写真实代码库，
+    // 用于代码版本控制与改动审阅。留空则仅限输出根目录（沙箱）。
+    workspaceDir: process.env.WORKSPACE_DIR || '',
+    // Web 托管模式是否允许访问 workspaceDir。默认 false 保持服务器沙箱零风险；仅在受信任的自部署场景开启。
+    allowWebWorkspace: process.env.ALLOW_WEB_WORKSPACE === 'true',
   },
 };

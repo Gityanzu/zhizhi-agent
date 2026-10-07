@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import type { RouteRecordRaw } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { getToken } from '@/api/request';
 
 // 路由配置
 const routes: RouteRecordRaw[] = [
@@ -44,6 +45,12 @@ const routes: RouteRecordRaw[] = [
     name: 'Workspace',
     component: () => import('@/views/WorkspaceView.vue'),
     meta: { title: '工作台' },
+  },
+  {
+    path: '/code-workbench',
+    name: 'CodeWorkbench',
+    component: () => import('@/views/CodeWorkbenchView.vue'),
+    meta: { title: '代码工作台' },
   },
   {
     path: '/agents',
@@ -109,9 +116,25 @@ const router = createRouter({
   },
 });
 
-// 动态设置页面标题
+// 动态设置页面标题 + 登录拦截
 router.beforeEach((to, _from, next) => {
   document.title = (to.meta.title as string) || '智知 AI Agent';
+
+  const isPublic = to.meta.public === true;
+  // 以本地 token 作为登录判据（避免 init() 异步拉取 user 未就绪时误判）
+  const authed = !!getToken();
+
+  // 未登录访问受保护页面 → 重定向登录页，并记录来源以便登录后回跳
+  if (!isPublic && !authed) {
+    const redirect = to.fullPath && to.fullPath !== '/chat' ? { redirect: to.fullPath } : {};
+    return next({ path: '/login', query: redirect });
+  }
+
+  // 已登录仍访问登录/注册类页面 → 直接回聊天
+  if (authed && (to.path === '/login' || to.path === '/forgot-password' || to.path === '/reset-password')) {
+    return next({ path: '/chat' });
+  }
+
   next();
 });
 

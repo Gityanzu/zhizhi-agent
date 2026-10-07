@@ -110,13 +110,20 @@
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus';
 import { User, Lock, Message, ChatDotRound } from '@element-plus/icons-vue';
 import { useAuthStore } from '../stores/auth';
 
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
+
+// 登录/注册成功后回跳：优先用路由拦截记录的 redirect（仅允许站内路径，防开放重定向）
+function redirectAfterAuth() {
+  const r = route.query.redirect as string | undefined;
+  router.replace(r && r.startsWith('/') && !r.startsWith('//') ? r : '/chat');
+}
 
 const activeTab = ref('login');
 const loginFormRef = ref<FormInstance>();
@@ -175,7 +182,7 @@ async function handleLogin() {
     try {
       await authStore.login(loginForm);
       ElMessage.success('登录成功');
-      router.push('/chat');
+      redirectAfterAuth();
     } catch (error: any) {
       ElMessage.error(error.response?.data?.error || '登录失败');
     }
@@ -193,7 +200,7 @@ async function handleRegister() {
         email: registerForm.email || undefined,
       });
       ElMessage.success('注册成功，已自动登录');
-      router.push('/chat');
+      redirectAfterAuth();
     } catch (error: any) {
       ElMessage.error(error.response?.data?.error || '注册失败');
     }

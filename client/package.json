@@ -1,6 +1,6 @@
 {
   "name": "zhizhi-agent-client",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "智知 - 企业知识库智能问答 Agent 桌面端",
   "author": "胡鑫",
   "private": true,

@@ -14,8 +14,12 @@ const ROOT = path.join(__dirname, '..'); // client/
 const DIST_DIR = path.join(ROOT, 'dist'); // vite 产物
 const ELECTRON_DIR = __dirname;
 
-// 后端源码/产物位置（client 与 server 是同级目录）
-const SERVER_DIR = path.join(ROOT, '..', 'server');
+// 后端位置：
+//   - 开发态：client 与 server 是仓库里的同级目录
+//   - 安装态：由 electron-builder extraResources 拷到 resources/server（asar 外）
+const SERVER_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'server')
+  : path.join(ROOT, '..', 'server');
 const SERVER_ENTRY_BUILT = path.join(SERVER_DIR, 'dist', 'index.js');
 const SERVER_ENTRY_DEV = path.join(SERVER_DIR, 'src', 'index.ts');
 
@@ -37,6 +41,8 @@ const USER_DIR = {
   uploads: path.join(app.getPath('userData'), 'data', 'uploads'),
   logs: path.join(app.getPath('userData'), 'logs'),
   exports: path.join(app.getPath('userData'), 'exports'),
+  // Agent 文件工具的默认输出目录（与后端 config 默认 ZHI_USER_DATA/outputs 对齐）
+  outputs: path.join(app.getPath('userData'), 'outputs'),
 };
 
 function ensureUserDirs() {

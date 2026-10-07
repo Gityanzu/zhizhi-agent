@@ -45,14 +45,65 @@
                 <!-- 功能14：浏览器截图 base64 渲染 -->
                 <img
                   v-if="getScreenshotImage(tool.result)"
-                  :src="getScreenshotImage(tool.result)"
+                  :src="getScreenshotImage(tool.result) || undefined"
                   class="screenshot-img"
-                  @click="previewImage(getScreenshotImage(tool.result))"
+                  @click="previewImage(getScreenshotImage(tool.result) || '')"
                 />
                 <div v-else class="result-content">{{ tool.result }}</div>
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- 桌面端文件审批卡（内联对话） -->
+        <div v-if="message.pendingApproval" class="approval-card" :class="{ decided: message.pendingApproval.decided }">
+          <div class="approval-header">
+            <el-icon class="approval-icon"><Warning /></el-icon>
+            <span class="approval-title">{{ message.pendingApproval.kind === 'write' ? '请求写入文件' : '请求读取文件' }}</span>
+            <el-tag v-if="!message.pendingApproval.inRoot" type="warning" size="small">输出目录外</el-tag>
+          </div>
+          <div class="approval-path"><code>{{ message.pendingApproval.path }}</code></div>
+          <div v-if="message.pendingApproval.kind === 'write'" class="approval-diff">
+            <div class="diff-col">
+              <div class="diff-label">修改前</div>
+              <pre class="diff-old">{{ message.pendingApproval.oldContent || '（新建文件）' }}</pre>
+            </div>
+            <div class="diff-col">
+              <div class="diff-label">修改后</div>
+              <pre class="diff-new">{{ message.pendingApproval.newContent || '' }}</pre>
+            </div>
+          </div>
+          <div class="approval-actions">
+            <template v-if="!message.pendingApproval.decided">
+              <el-button type="primary" size="small" @click="$emit('approve', message.id, true, false)">允许</el-button>
+              <el-button size="small" @click="$emit('approve', message.id, true, true)">本次会话始终允许</el-button>
+              <el-button type="danger" size="small" @click="$emit('approve', message.id, false, false)">拒绝</el-button>
+            </template>
+            <span v-else class="approval-decided">已提交，等待后端处理…</span>
+          </div>
+        </div>
+        
+        <!-- Plan 模式前置确认卡 -->
+        <div v-if="message.pendingPlan" class="approval-card plan-confirm-card" :class="{ decided: message.pendingPlan.decided }">
+          <div class="approval-header">
+            <el-icon class="approval-icon"><List /></el-icon>
+            <span class="approval-title">执行计划确认</span>
+          </div>
+          <div class="plan-step-list">
+            <div v-for="step in message.pendingPlan.plan" :key="step.id" class="plan-step">
+              <div class="step-content">
+                <div class="step-title">{{ step.id }}. {{ step.title }}</div>
+                <div v-if="step.description" class="step-desc">{{ step.description }}</div>
+              </div>
+            </div>
+          </div>
+          <div v-if="!message.pendingPlan.decided" class="approval-actions">
+            <el-input v-model="planFeedback" size="small" placeholder="可选：附加约束后执行" style="flex: 1; margin-right: 8px;" />
+            <el-button type="primary" size="small" @click="confirmPlan(true)">确认执行</el-button>
+            <el-button size="small" @click="confirmPlan(true, planFeedback)">修改后执行</el-button>
+            <el-button size="small" type="danger" @click="confirmPlan(false)">取消</el-button>
+          </div>
+          <span v-else class="approval-decided">已提交，等待后端执行…</span>
         </div>
         
         <!-- Plan模式：任务规划步骤 -->
@@ -252,7 +303,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { User, Service, MagicStick, ArrowDown, Link, List, CircleCheck, CircleClose, Clock, Loading, UserFilled, CopyDocument, Refresh, EditPen } from '@element-plus/icons-vue'
+import { User, Service, MagicStick, ArrowDown, Link, List, CircleCheck, CircleClose, Clock, Loading, UserFilled, CopyDocument, Refresh, EditPen, Warning } from '@element-plus/icons-vue'
 import { Marked } from 'marked'
 import { markedHighlight } from 'marked-highlight'
 import DOMPurify from 'dompurify'
@@ -267,6 +318,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'regenerate'): void
   (e: 'edit', messageId: string, newContent: string): void
+  (e: 'approve', messageId: string, approved: boolean, remember: boolean): void
+  (e: 'plan-confirm', messageId: string, confirmed: boolean, feedback?: string): void
 }>()
 
 const expandedTools = ref<number[]>([])
@@ -274,6 +327,12 @@ const expandedPlan = ref(false)
 const expandedTrace = ref(false)
 const expandedThinking = ref(false)
 const copied = ref(false)
+
+// Plan 模式前置确认
+const planFeedback = ref('')
+function confirmPlan(confirmed: boolean, feedback?: string) {
+  emit('plan-confirm', message.id, confirmed, feedback && feedback.trim() ? feedback.trim() : undefined)
+}
 
 // 代码执行状态
 const codeRunStates = ref<Record<string, { running: boolean; result: CodeExecutionResult | null; expanded: boolean }>>({})
@@ -788,6 +847,87 @@ function toggleRunResult(runId: string) {
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid #ebeef5;
+}
+
+/* 桌面端文件审批卡 */
+.approval-card {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #fdf6ec;
+  border: 1px solid #f5dab1;
+  border-left: 3px solid #e6a23c;
+}
+.approval-card.decided {
+  opacity: 0.7;
+}
+.approval-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.approval-icon {
+  color: #e6a23c;
+}
+.approval-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #b88230;
+}
+.approval-path code {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-size: 12px;
+  background: rgba(230, 162, 60, 0.12);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.approval-diff {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+}
+.diff-col {
+  flex: 1;
+  min-width: 0;
+}
+.diff-label {
+  font-size: 12px;
+  color: #909399;
+  margin-bottom: 4px;
+}
+.approval-diff pre {
+  margin: 0;
+  padding: 8px;
+  max-height: 200px;
+  overflow: auto;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.diff-old {
+  background: #fef0f0;
+  border: 1px solid #fbc4c4;
+}
+.diff-new {
+  background: #f0f9eb;
+  border: 1px solid #e1f3d8;
+}
+.approval-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.approval-decided {
+  font-size: 12px;
+  color: #909399;
 }
 
 /* Plan模式样式 */

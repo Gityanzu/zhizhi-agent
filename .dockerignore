@@ -1,0 +1,21 @@
+# 仓库根 .dockerignore（Dockerfile 构建上下文 = 仓库根）
+**/node_modules
+**/dist
+**/release
+client/electron/output
+data/
+server/data/
+!server/data/templates
+**/*.log
+logs/
+.git
+.env
+**/.env
+!deploy/.env.example
+agent_output/
+docs/
+tests/
+server/tests/
+*.md
+.dockerignore
+Jenkinsfile

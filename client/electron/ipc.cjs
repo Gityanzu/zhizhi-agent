@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const backend = require('./backend.cjs');
 const updater = require('./updater.cjs');
+const serverConfig = require('./serverConfig.cjs');
 const { USER_DIR, trayIconName } = require('./paths.cjs');
 
 function safeHandler(channel, fn) {
@@ -102,6 +103,18 @@ function registerAllIpc() {
     return { canceled: false, files };
   });
 
+  // 选择目录（桌面端"默认输出目录"设置用）：返回用户选定的绝对路径
+  safeHandler('dialog:pickDirectory', async (e, options = {}) => {
+    const win = windowFrom(e);
+    const result = await dialog.showOpenDialog(win, {
+      title: options.title || '选择输出目录',
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: options.defaultPath,
+    });
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true, path: '' };
+    return { canceled: false, path: result.filePaths[0] };
+  });
+
   // 渲染层拿不到文件系统，由主进程读成 base64 回传，再在前端拼成 File 走原有上传逻辑
   safeHandler('fs:readAsBase64', async (_e, filePath, maxBytes = 200 * 1024 * 1024) => {
     const stat = await fs.promises.stat(filePath);
@@ -171,6 +184,20 @@ function registerAllIpc() {
   safeHandler('backend:getStatus', () => backend.getState());
   safeHandler('backend:restart', () => backend.restartBackend());
   safeHandler('backend:ping', () => backend.pingHealth());
+
+  /* ---------------- 服务器连接配置（本地内嵌 / 远程后端） ---------------- */
+  safeHandler('serverConfig:get', () => serverConfig.loadConfig());
+
+  // 保存配置后立即切换后端：先回收内嵌子进程，再按新模式初始化；
+  // hostServer 的反代目标每请求实时读取，保存后无需重启应用。
+  safeHandler('serverConfig:set', async (_e, cfg) => {
+    const saved = serverConfig.saveConfig(cfg);
+    await backend.stopBackend();
+    const state = await backend.ensureBackend();
+    return { config: saved, backend: state };
+  });
+
+  safeHandler('serverConfig:test', (_e, url) => serverConfig.testConnection(url));
 }
 
 module.exports = { registerAllIpc, sendToAll };

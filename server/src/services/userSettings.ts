@@ -1,5 +1,6 @@
 import { query } from '../db';
 import crypto from 'crypto';
+import { setAgentOutputDir } from './agentOutput';
 
 export interface UserProfile {
   nickname: string;
@@ -16,6 +17,7 @@ export interface UserPreferences {
   temperature: number;
   topP: number;
   maxTokens: number;
+  agentOutputDir?: string; // 桌面端 Agent 文件输出根目录（仅桌面端可设置）
 }
 
 export interface LLMKey {
@@ -85,6 +87,10 @@ export async function updatePreferences(preferences: UserPreferences) {
     'UPDATE user_settings SET preferences = $1, updated_at = NOW() WHERE id = 1',
     [preferences]
   );
+  // 若携带输出目录，立即应用到运行时（无需重启后端即生效）
+  if (typeof preferences.agentOutputDir === 'string') {
+    setAgentOutputDir(preferences.agentOutputDir);
+  }
   return preferences;
 }
 

@@ -33,6 +33,29 @@ files:
 
 asar: true
 
+# 本地后端随包分发（asar 不适合跑子进程，统一拷进 resources/server）：
+#   - dist/            tsc 编译产物（打包前先在 server 目录执行 npm run build）
+#   - public/          分享页等静态资源（express.static 指向 ../public）
+#   - data/            内置模板等种子数据；排除 sessions/folders 避免把开发机会话打进安装包
+#   - node_modules/    生产依赖（由 build/server-runtime 下的 npm ci --omit=dev 预先安装）
+extraResources:
+  - from: ../server/dist
+    to: server/dist
+  - from: ../server/skills-library
+    to: server/skills-library
+  - from: ../server/public
+    to: server/public
+  - from: ../server/package.json
+    to: server/package.json
+  - from: ../server/data
+    to: server/data
+    filter:
+      - '**/*'
+      - '!sessions.json'
+      - '!folders.json'
+  - from: build/server-runtime/node_modules
+    to: server/node_modules
+
 # ---------------------------- Windows ----------------------------
 win:
   target:

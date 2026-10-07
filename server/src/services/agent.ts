@@ -10,20 +10,27 @@ import {
 } from '@langchain/core/messages';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { executeCode } from './codeExecutor';
 import { getDynamicTools, executeCustomTool, type CustomTool } from './customTool';
 import {
   webNavigate, webClick, webType, webScreenshot, webExtractText,
 } from './browserTool';
 import { textToSQLAndExecute } from './dbQuery';
+import { getAgentOutputDir } from './agentOutput';
+import { parseFile as parseDocumentFile } from './document';
+import { resolveTarget, classify, getWorkspaceDir, type FileOperation } from './filePermission';
+import { indexCodebase, searchCodebase } from './codeIndex';
+import { randomUUID } from 'crypto';
 
-// Agent 文件工作目录
-const AGENT_WORK_DIR = path.resolve(__dirname, '../../agent_output');
-
-// 确保工作目录存在
-if (!fs.existsSync(AGENT_WORK_DIR)) {
-  fs.mkdirSync(AGENT_WORK_DIR, { recursive: true });
+// Agent 文件工具的输出根目录：不再写死，统一经 getAgentOutputDir() 动态解析
+// （桌面端可配置到用户本机目录，Web 端回退到仓库内 agent_output）。
+function workDir(): string {
+  const dir = getAgentOutputDir();
+  if (!fs.existsSync(dir)) {
+    try { fs.mkdirSync(dir, { recursive: true }); } catch { /* 并发/权限竞态忽略 */ }
+  }
+  return dir;
 }
 
 // ==================== 工具定义 ====================
@@ -83,59 +90,68 @@ export const tools: ToolDefinition[] = [
   // ===== 文件操作 =====
   {
     name: 'create_file',
-    description: '创建新文件。当用户要求创建文件、写文档、生成代码文件时使用。如果文件已存在会失败，需要用write_file覆盖。',
+    description: '创建新文件。当用户要求创建文件、写文档、生成代码文件时使用。默认写入输出根目录；可用 dir 参数指定子目录或本机绝对路径（桌面端需用户确认）。文件已存在会失败，需用 write_file 覆盖。',
     parameters: {
       type: 'object',
       properties: {
         filename: { type: 'string', description: '文件名，如 "hello.txt"、"test.py"' },
         content: { type: 'string', description: '文件内容' },
+        dir: { type: 'string', description: '可选。目标目录：相对输出根目录的子目录，或本机绝对路径（桌面端）。不传则写入默认输出目录' },
       },
       required: ['filename', 'content'],
     },
   },
   {
     name: 'read_file',
-    description: '读取文件内容。当用户需要查看某个文件的内容时使用此工具。',
+    description: '读取文件内容。输出根目录内的文件静默读取；filename 也可传本机绝对路径（桌面端会请求用户确认）。',
     parameters: {
       type: 'object',
       properties: {
-        filename: { type: 'string', description: '要读取的文件名' },
+        filename: { type: 'string', description: '要读取的文件名（相对输出目录）或本机绝对路径' },
       },
       required: ['filename'],
     },
   },
   {
     name: 'write_file',
-    description: '写入文件（覆盖已有内容）。当用户要求修改、覆盖文件内容时使用此工具。',
+    description: '写入文件（覆盖已有内容）。可用 dir 参数指定子目录或本机绝对路径（桌面端）。',
     parameters: {
       type: 'object',
       properties: {
         filename: { type: 'string', description: '文件名' },
         content: { type: 'string', description: '新的文件内容' },
+        dir: { type: 'string', description: '可选。目标目录（相对输出根目录或本机绝对路径）' },
       },
       required: ['filename', 'content'],
     },
   },
   {
     name: 'append_file',
-    description: '追加内容到文件末尾。当用户要求在已有文件后面添加内容时使用此工具。',
+    description: '追加内容到文件末尾。当用户要求在已有文件后面添加内容时使用。可用 dir 参数指定目录。',
     parameters: {
       type: 'object',
       properties: {
         filename: { type: 'string', description: '文件名' },
         content: { type: 'string', description: '要追加的内容' },
+        dir: { type: 'string', description: '可选。目标目录' },
       },
       required: ['filename', 'content'],
     },
   },
   {
     name: 'list_files',
-    description: '列出工作目录下的所有文件。当用户需要查看有哪些文件时使用此工具。',
-    parameters: { type: 'object', properties: {}, required: [] },
+    description: '列出目录下的文件。默认列输出根目录；可用 dir 参数指定子目录或本机绝对路径（桌面端需确认）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        dir: { type: 'string', description: '可选。要列出的目录（相对输出根目录或本机绝对路径）。不传为默认输出目录' },
+      },
+      required: [],
+    },
   },
   {
     name: 'search_files',
-    description: '按关键词搜索文件。当用户需要查找特定文件时使用此工具。',
+    description: '按关键词递归搜索输出目录下的文件。当用户需要查找特定文件时使用此工具。',
     parameters: {
       type: 'object',
       properties: {
@@ -154,6 +170,43 @@ export const tools: ToolDefinition[] = [
         command: { type: 'string', description: '要执行的命令，如 "dir"、"node -v"' },
       },
       required: ['command'],
+    },
+  },
+  {
+    name: 'git',
+    description: '在指定工作目录（默认输出根目录，桌面端可指定本机绝对路径）执行 git 命令，用于代码库版本控制与产出可审阅变更。只读命令(status/diff/log/branch/show)直接执行；写命令(add/commit/reset/checkout/stash/push/pull/apply)会先请求用户审批。apply 子命令支持通过 patch 参数传入 unified diff 应用补丁。',
+    parameters: {
+      type: 'object',
+      properties: {
+        subcommand: { type: 'string', description: 'git 子命令，取值：status/diff/log/branch/add/commit/reset/checkout/stash/push/pull/apply/show。如 status、diff、log、add、commit、push、pull、apply' },
+        cwd: { type: 'string', description: '可选。git 仓库目录（相对输出根目录或本机绝对路径）。不传使用默认输出根目录' },
+        message: { type: 'string', description: '可选。commit 子命令的提交信息' },
+        pathspec: { type: 'string', description: '可选。add/checkout/reset/diff/status 作用的文件或路径' },
+        patch: { type: 'string', description: '可选。apply 子命令的 unified diff 内容' },
+      },
+      required: ['subcommand'],
+    },
+  },
+  {
+    name: 'index_codebase',
+    description: '对指定目录（默认当前代码工作区）的源代码建立语义索引，供 search_codebase 检索。当需要"读懂整个代码库"、定位某功能/符号实现，或开始一个涉及代码库的编码任务前，应先调用一次。支持 ts/js/py/java/go/rs/c/cpp/cs/rb/php/vue 等。',
+    parameters: {
+      type: 'object',
+      properties: {
+        dir: { type: 'string', description: '可选。要索引的目录（相对输出根或本机绝对路径）。不传则索引默认代码工作区' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'search_codebase',
+    description: '在已索引的代码库中做语义检索，返回文件路径、行号范围与代码内容。当需要定位某功能/符号/逻辑的实现位置，或理解某段代码的上下文时使用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '检索描述，如 "用户登录校验逻辑"、"数据库连接池初始化"、"处理 WebSocket 消息的函数"' },
+      },
+      required: ['query'],
     },
   },
   {
@@ -251,13 +304,39 @@ export const tools: ToolDefinition[] = [
       required: ['connection_id', 'question'],
     },
   },
+  // ===== 文档解析 =====
+  {
+    name: 'parse_document',
+    description: '解析本地文档为纯文本（支持 PDF/Word(.docx)/Markdown/TXT/CSV）。当用户要求阅读、总结、分析某个文档文件时使用。filename 可为输出目录内文件名或本机绝对路径（桌面端需用户确认）。如需将文档入库检索，请引导用户使用知识库上传。',
+    parameters: {
+      type: 'object',
+      properties: {
+        filename: { type: 'string', description: '文档文件名或绝对路径' },
+      },
+      required: ['filename'],
+    },
+  },
 ];
 
 // ==================== 工具执行 ====================
 
-// 工具执行上下文（可携带本次请求的知识库过滤范围等）
+// 工具执行上下文（可携带本次请求的知识库过滤范围、桌面模式、审批回调等）
+export interface ApprovalRequest {
+  requestId: string;
+  kind: 'read' | 'write';
+  path: string;          // 目标绝对路径（供展示）
+  inRoot: boolean;       // 是否位于输出根目录内
+  oldContent?: string;   // 写操作：覆盖前内容（diff 左）
+  newContent?: string;   // 写操作：拟写入内容（diff 右）
+}
+
 export interface ToolContext {
   collectionIds?: string[];
+  isDesktop?: boolean;
+  userId?: string | null;
+  sessionId?: string;    // 供"本次会话始终允许"记住授权范围
+  // 请求用户审批：返回 true=允许，false=拒绝。未提供时 ask 一律安全默认拒绝。
+  requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
 }
 
 export async function executeTool(
@@ -275,19 +354,25 @@ export async function executeTool(
     case 'web_search':
       return await executeWebSearch(args.query, args.max_results);
     case 'create_file':
-      return executeCreateFile(args.filename, args.content);
+      return await executeCreateFile(args.filename, args.content, args.dir, context);
     case 'read_file':
-      return executeReadFile(args.filename);
+      return await executeReadFile(args.filename, context);
     case 'write_file':
-      return executeWriteFile(args.filename, args.content);
+      return await executeWriteFile(args.filename, args.content, args.dir, context);
     case 'append_file':
-      return executeAppendFile(args.filename, args.content);
+      return await executeAppendFile(args.filename, args.content, args.dir, context);
     case 'list_files':
-      return executeListFiles();
+      return executeListFiles(args.dir, context);
     case 'search_files':
       return executeSearchFiles(args.keyword);
     case 'run_shell':
       return await executeRunShell(args.command);
+    case 'git':
+      return await executeGit(args.subcommand, args.cwd, args.message, args.pathspec, args.patch, context);
+    case 'index_codebase':
+      return await indexCodebase(args.dir, context);
+    case 'search_codebase':
+      return await searchCodebase(args.query);
     case 'translate_text':
       return await executeTranslate(args.text, args.target_lang);
     case 'summarize_text':
@@ -306,16 +391,68 @@ export async function executeTool(
       return await webExtractText();
     case 'text_to_sql':
       return await textToSQLAndExecute(args.connection_id, args.question);
+    case 'parse_document':
+      return await executeParseDocument(args.filename, context);
     default:
       // 尝试自定义工具
       return await executeCustomTool(toolName, args);
   }
 }
 
-// 安全路径处理
-function safePath(filename: string): string {
-  const safeName = path.basename(filename);
-  return path.join(AGENT_WORK_DIR, safeName);
+// 拼接工具入参：dir（可选）+ filename → 统一交给 resolveTarget 处理相对/绝对
+function combinePath(dir: string | undefined, filename: string): string {
+  const name = filename || '';
+  if (dir && dir.trim()) return path.join(dir.trim(), name);
+  return name;
+}
+
+// 确保目标文件的父目录存在（支持"指定目录"写出到新子目录）
+function ensureParentDir(filePath: string): void {
+  const parent = path.dirname(filePath);
+  if (parent && !fs.existsSync(parent)) {
+    fs.mkdirSync(parent, { recursive: true });
+  }
+}
+
+// 权限判定 + 审批编排：返回可执行的绝对路径，或拒绝原因（message）
+async function ensureFileAccess(
+  operation: FileOperation,
+  inputPath: string,
+  context?: ToolContext,
+  extra?: { newContent?: string }
+): Promise<{ ok: true; absPath: string; inRoot: boolean } | { ok: false; message: string }> {
+  const target = resolveTarget(inputPath);
+  const perm = classify(operation, target, !!context?.isDesktop);
+
+  if (perm === 'deny') {
+    return { ok: false, message: `已拒绝访问敏感路径（密钥/凭据/浏览器数据等）：${target.absPath}` };
+  }
+  if (perm === 'allow') {
+    return { ok: true, absPath: target.absPath, inRoot: target.inRoot };
+  }
+
+  // ask：需要用户确认。写操作附带 diff 预览。
+  let oldContent: string | undefined;
+  if (operation === 'write' && fs.existsSync(target.absPath)) {
+    try { oldContent = fs.readFileSync(target.absPath, 'utf-8'); } catch { /* 二进制或无权限 */ }
+  }
+  const req: ApprovalRequest = {
+    requestId: randomUUID(),
+    kind: operation === 'read' ? 'read' : 'write',
+    path: target.absPath,
+    inRoot: target.inRoot,
+    oldContent,
+    newContent: operation === 'write' ? extra?.newContent : undefined,
+  };
+
+  if (!context?.requestApproval) {
+    return { ok: false, message: `该操作需用户确认，但当前环境无法交互（已安全拒绝）：${req.kind} ${target.absPath}` };
+  }
+  const approved = await context.requestApproval(req);
+  if (!approved) {
+    return { ok: false, message: `用户已拒绝该操作：${target.absPath}` };
+  }
+  return { ok: true, absPath: target.absPath, inRoot: target.inRoot };
 }
 
 // 知识库检索工具
@@ -326,6 +463,28 @@ async function executeKnowledgeBaseSearch(query: string, collectionIds?: string[
     return results.map((r, i) => `[来源: ${r.source}]\n${r.content}`).join('\n\n---\n\n');
   } catch (error) {
     return `检索失败: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}
+
+// 文档解析工具：PDF/Word/Markdown/TXT/CSV → 纯文本（走统一文件权限/审批链路）
+const PARSE_MAX_CHARS = 20000;
+async function executeParseDocument(filename: string, context?: ToolContext): Promise<string> {
+  try {
+    if (!filename || !filename.trim()) return '请提供要解析的文档文件名或路径';
+    const access = await ensureFileAccess('read', filename.trim(), context);
+    if (!access.ok) return access.message;
+    if (!fs.existsSync(access.absPath)) return `文件不存在: ${access.absPath}`;
+
+    const text = await parseDocumentFile(access.absPath, '');
+    if (!text || !text.trim()) return `文档解析完成但内容为空（可能是扫描版 PDF 或纯图片文档）: ${path.basename(access.absPath)}`;
+
+    const head = `【${path.basename(access.absPath)}】共 ${text.length} 字符，${Math.ceil(text.length / 500)} 行估计`;
+    if (text.length <= PARSE_MAX_CHARS) {
+      return `${head}\n\n${text}`;
+    }
+    return `${head}（已截断前 ${PARSE_MAX_CHARS} 字符，如需后续部分请分段处理）\n\n${text.slice(0, PARSE_MAX_CHARS)}\n\n…… [中略 ${text.length - PARSE_MAX_CHARS} 字符] ……`;
+  } catch (error) {
+    return `文档解析失败: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
@@ -526,12 +685,15 @@ async function executeWebSearch(query: string, maxResults?: string): Promise<str
 }
 
 // 创建文件工具
-function executeCreateFile(filename: string, content: string): string {
+async function executeCreateFile(filename: string, content: string, dir?: string, context?: ToolContext): Promise<string> {
   try {
-    const filePath = safePath(filename);
+    const access = await ensureFileAccess('write', combinePath(dir, filename), context, { newContent: content });
+    if (!access.ok) return access.message;
+    const filePath = access.absPath;
     if (fs.existsSync(filePath)) {
-      return `创建失败：文件 "${filename}" 已存在，请使用 write_file 覆盖或换个文件名`;
+      return `创建失败：文件 "${filePath}" 已存在，请使用 write_file 覆盖或换个文件名`;
     }
+    ensureParentDir(filePath);
     fs.writeFileSync(filePath, content, 'utf-8');
     return `文件创建成功！\n文件名: ${filename}\n路径: ${filePath}\n大小: ${content.length} 字符`;
   } catch (error) {
@@ -539,23 +701,29 @@ function executeCreateFile(filename: string, content: string): string {
   }
 }
 
-// 读取文件工具
-function executeReadFile(filename: string): string {
+// 读取文件工具（支持输出根目录内静默读 + 根外本机绝对路径读需确认）
+async function executeReadFile(filename: string, context?: ToolContext): Promise<string> {
   try {
-    const filePath = safePath(filename);
-    if (!fs.existsSync(filePath)) return `文件不存在: ${filename}`;
+    const access = await ensureFileAccess('read', filename, context);
+    if (!access.ok) return access.message;
+    const filePath = access.absPath;
+    if (!fs.existsSync(filePath)) return `文件不存在: ${filePath}`;
+    if (fs.statSync(filePath).isDirectory()) return `目标是目录，请用 list_files 查看：${filePath}`;
     const content = fs.readFileSync(filePath, 'utf-8');
-    return `文件内容（${filename}）：\n${content}`;
+    return `文件内容（${filePath}）：\n${content}`;
   } catch (error) {
     return `读取失败: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
 // 写入文件工具（覆盖）
-function executeWriteFile(filename: string, content: string): string {
+async function executeWriteFile(filename: string, content: string, dir?: string, context?: ToolContext): Promise<string> {
   try {
-    const filePath = safePath(filename);
+    const access = await ensureFileAccess('write', combinePath(dir, filename), context, { newContent: content });
+    if (!access.ok) return access.message;
+    const filePath = access.absPath;
     const existed = fs.existsSync(filePath);
+    ensureParentDir(filePath);
     fs.writeFileSync(filePath, content, 'utf-8');
     return `${existed ? '文件已覆盖更新' : '文件创建成功'}！\n文件名: ${filename}\n路径: ${filePath}\n大小: ${content.length} 字符`;
   } catch (error) {
@@ -564,37 +732,68 @@ function executeWriteFile(filename: string, content: string): string {
 }
 
 // 追加文件工具
-function executeAppendFile(filename: string, content: string): string {
+async function executeAppendFile(filename: string, content: string, dir?: string, context?: ToolContext): Promise<string> {
   try {
-    const filePath = safePath(filename);
-    if (!fs.existsSync(filePath)) return `文件不存在: ${filename}，请先创建`;
+    const inputPath = combinePath(dir, filename);
+    // 预览：追加后的完整内容，供 diff 审批展示
+    let preview = content;
+    const probe = resolveTarget(inputPath);
+    if (fs.existsSync(probe.absPath)) {
+      try { preview = fs.readFileSync(probe.absPath, 'utf-8') + content; } catch { /* ignore */ }
+    }
+    const access = await ensureFileAccess('write', inputPath, context, { newContent: preview });
+    if (!access.ok) return access.message;
+    const filePath = access.absPath;
+    if (!fs.existsSync(filePath)) return `文件不存在: ${filePath}，请先创建`;
     fs.appendFileSync(filePath, content, 'utf-8');
-    return `内容已追加到 ${filename}\n追加大小: ${content.length} 字符`;
+    return `内容已追加到 ${filePath}\n追加大小: ${content.length} 字符`;
   } catch (error) {
     return `追加失败: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
-// 列出文件工具
-function executeListFiles(): string {
+// 列出文件工具（默认列输出根目录；传 dir 列指定目录，根外需确认）
+async function executeListFiles(dir?: string, context?: ToolContext): Promise<string> {
   try {
-    const files = fs.readdirSync(AGENT_WORK_DIR);
-    if (files.length === 0) return '工作目录为空';
+    let targetDir = workDir();
+    if (dir && dir.trim()) {
+      const access = await ensureFileAccess('read', dir, context);
+      if (!access.ok) return access.message;
+      targetDir = access.absPath;
+    }
+    if (!fs.existsSync(targetDir)) return `目录不存在: ${targetDir}`;
+    const files = fs.readdirSync(targetDir);
+    if (files.length === 0) return `目录为空：${targetDir}`;
     const fileList = files.map(f => {
-      const stat = fs.statSync(path.join(AGENT_WORK_DIR, f));
+      const stat = fs.statSync(path.join(targetDir, f));
       return `- ${f} (${stat.size} 字节, ${stat.isDirectory() ? '目录' : '文件'})`;
     }).join('\n');
-    return `工作目录文件列表（共${files.length}个）：\n${fileList}`;
+    return `目录 ${targetDir} 文件列表（共${files.length}个）：\n${fileList}`;
   } catch (error) {
     return `列出失败: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
-// 搜索文件工具
+// 搜索文件工具（在输出根目录内按文件名递归搜索）
 function executeSearchFiles(keyword: string): string {
   try {
-    const files = fs.readdirSync(AGENT_WORK_DIR);
-    const matched = files.filter(f => f.toLowerCase().includes(keyword.toLowerCase()));
+    const root = workDir();
+    if (!keyword || !keyword.trim()) return '请提供搜索关键词';
+    const kw = keyword.toLowerCase();
+    const matched: string[] = [];
+    const MAX = 200; // 命中上限，避免大目录卡死
+    const walk = (dir: string, depth: number) => {
+      if (depth > 6 || matched.length >= MAX) return;
+      let entries: fs.Dirent[];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        if (matched.length >= MAX) return;
+        const full = path.join(dir, e.name);
+        if (e.name.toLowerCase().includes(kw)) matched.push(path.relative(root, full) || e.name);
+        if (e.isDirectory()) walk(full, depth + 1);
+      }
+    };
+    walk(root, 0);
     if (matched.length === 0) return `未找到包含 "${keyword}" 的文件`;
     return `找到 ${matched.length} 个文件：\n${matched.map(f => `- ${f}`).join('\n')}`;
   } catch (error) {
@@ -615,13 +814,114 @@ async function executeRunShell(command: string): Promise<string> {
       return;
     }
     
-    exec(command, { timeout: 10000, cwd: AGENT_WORK_DIR }, (error, stdout, stderr) => {
+    exec(command, { timeout: 10000, cwd: workDir() }, (error, stdout, stderr) => {
       if (error) {
         resolve(`命令执行出错: ${error.message}\n${stderr || ''}`);
         return;
       }
       const output = (stdout || '').trim();
       resolve(`命令执行结果：\n${output || '(无输出)'}`);
+    });
+  });
+}
+
+// Git 工具：在指定工作目录执行 git 命令，用于代码库版本控制与产出可审阅变更。
+// 只读子命令直接执行；写子命令需用户审批（复用 requestApproval，与文件写操作一致的 HITL 体验）。
+const GIT_READ_SUBCOMMANDS = new Set(['status', 'diff', 'log', 'branch', 'show', 'remote', 'tag', 'ls-files']);
+const GIT_SUBCOMMANDS = [
+  'status', 'diff', 'log', 'branch', 'add', 'commit', 'reset',
+  'checkout', 'stash', 'push', 'pull', 'apply', 'show', 'remote', 'tag', 'ls-files',
+];
+
+async function executeGit(
+  subcommand: string,
+  cwd?: string,
+  message?: string,
+  pathspec?: string,
+  patch?: string,
+  context?: ToolContext
+): Promise<string> {
+  const sub = (subcommand || '').trim().split(/\s+/)[0];
+  if (!GIT_SUBCOMMANDS.includes(sub)) {
+    return `不支持的 git 子命令：${sub}。支持的子命令：${GIT_SUBCOMMANDS.join(', ')}`;
+  }
+
+  // 解析工作目录并校验权限（Web 端根外 deny，桌面端根外 ask，敏感清单 deny）
+  const wsDir = getWorkspaceDir();
+  const useWs = !!(wsDir && (context?.isDesktop || config.agent?.allowWebWorkspace));
+  const targetRaw = cwd && cwd.trim()
+    ? cwd.trim()
+    : (useWs ? wsDir! : workDir());
+  const target = resolveTarget(targetRaw);
+  const perm = classify('read', target, !!context?.isDesktop);
+  if (perm === 'deny') {
+    return `已拒绝访问目录（根目录外且非桌面端或命中敏感清单）：${target.absPath}`;
+  }
+  if (perm === 'ask') {
+    if (!context?.requestApproval) {
+      return `该目录需用户确认，但当前环境无法交互（已安全拒绝）：${target.absPath}`;
+    }
+    const approved = await context.requestApproval({
+      requestId: randomUUID(),
+      kind: 'write',
+      path: target.absPath,
+      inRoot: target.inRoot,
+    });
+    if (!approved) return `用户已拒绝访问目录：${target.absPath}`;
+  }
+
+  // 写子命令需审批
+  const isWrite = !GIT_READ_SUBCOMMANDS.has(sub);
+  if (isWrite && context?.requestApproval) {
+    const approved = await context.requestApproval({
+      requestId: randomUUID(),
+      kind: 'write',
+      path: `${target.absPath} (git ${subcommand})`,
+      inRoot: target.inRoot,
+    });
+    if (!approved) return `用户已拒绝 git ${subcommand}`;
+  }
+
+  // 构造 git 参数（数组形式传入，Node 自动转义，避免命令注入）
+  const args: string[] = [sub];
+  if (sub === 'log') args.push('--oneline', '-10');
+  else if (sub === 'add') args.push(pathspec && pathspec.trim() ? pathspec.trim() : '.');
+  else if (sub === 'commit') args.push('-m', message && message.trim() ? message.trim() : 'agent: auto commit');
+  else if ((sub === 'checkout' || sub === 'reset') && pathspec && pathspec.trim()) args.push(pathspec.trim());
+  else if ((sub === 'diff' || sub === 'status') && pathspec && pathspec.trim()) args.push(pathspec.trim());
+
+  // apply：先把 unified diff 写入临时补丁文件再 git apply
+  let tmpPatch: string | undefined;
+  if (sub === 'apply') {
+    if (!patch || !patch.trim()) return 'git apply 需要提供 patch 参数（unified diff 内容）';
+    try {
+      tmpPatch = path.join(target.absPath, `.git-apply-${randomUUID()}.patch`);
+      fs.writeFileSync(tmpPatch, patch, 'utf-8');
+      args.push(tmpPatch);
+    } catch (e) {
+      return `写入临时 patch 文件失败: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
+  try {
+    return await runGit(args, target.absPath);
+  } finally {
+    if (tmpPatch && fs.existsSync(tmpPatch)) {
+      try { fs.unlinkSync(tmpPatch); } catch { /* ignore */ }
+    }
+  }
+}
+
+// 安全执行 git：参数数组，不带 shell，避免命令注入
+function runGit(args: string[], cwd: string): Promise<string> {
+  return new Promise((resolve) => {
+    execFile('git', args, { cwd, timeout: 30000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        resolve(`git ${args.join(' ')} 执行出错: ${error.message}${stderr ? '\n' + stderr : ''}`);
+        return;
+      }
+      const out = (stdout || '').trim();
+      resolve(out || '(无输出)');
     });
   });
 }
@@ -722,7 +1022,12 @@ export function getBuiltinToolNames(): string[] {
 }
 
 function buildToolsDescription(toolList: ToolDefinition[]): string {
-  return toolList.map(t => `- ${t.name}: ${t.description}`).join('\n');
+  let desc = toolList.map(t => `- ${t.name}: ${t.description}`).join('\n');
+  const wsDir = getWorkspaceDir();
+  if (wsDir && (config.isDesktop || config.agent?.allowWebWorkspace)) {
+    desc += `\n\n当前代码工作区目录：${wsDir}。git 工具可省略 cwd 直接作用于该工作区；create_file/write_file/read_file 等文件工具可传入该目录下的绝对路径来读写真实代码库。工作区内的写操作仍需用户审批。`;
+  }
+  return desc;
 }
 
 // 合并内置工具和动态自定义工具，并按自定义Agent配置过滤
@@ -820,13 +1125,24 @@ async function runAgentLoop(
     onFinalAnswer?: (answer: string) => void;
   },
   customAgent?: CustomAgentConfig,
-  options?: { collectionIds?: string[] }
+  options?: {
+    collectionIds?: string[];
+    isDesktop?: boolean;
+    sessionId?: string;
+    requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
+  }
 ): Promise<{ answer: string; sources: RetrievalResult[]; tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
   const availableTools = await resolveAvailableTools(customAgent);
   const messages = buildInitialMessages(userMessage, chatHistory, availableTools, customAgent?.systemPrompt);
   const allSources: RetrievalResult[] = [];
   const llm = buildLLMForAgent(customAgent);
   const collectionIds = options?.collectionIds;
+  const toolContext: ToolContext = {
+    collectionIds,
+    isDesktop: options?.isDesktop,
+    sessionId: options?.sessionId,
+    requestApproval: options?.requestApproval,
+  };
   let iteration = 0;
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
@@ -884,7 +1200,7 @@ async function runAgentLoop(
 
         callbacks.onToolCall?.(toolName, toolArgs);
 
-        const toolResult = await executeTool(toolName, toolArgs, { collectionIds });
+        const toolResult = await executeTool(toolName, toolArgs, toolContext);
 
         callbacks.onToolResult?.(toolName, toolResult);
 
@@ -988,7 +1304,7 @@ export async function agentRun(
     onFinalAnswer: (answer) => {
       steps.push({ type: 'final_answer', content: answer });
     },
-  }, options?.customAgent, { collectionIds: options?.collectionIds });
+  }, options?.customAgent, { collectionIds: options?.collectionIds, sessionId: options?.sessionId, isDesktop: false });
 
   return { answer, steps, sources, tokenUsage };
 }
@@ -998,13 +1314,24 @@ export async function* agentRunStream(
   userMessage: string,
   chatHistory: Array<{ role: string; content: string }> = [],
   customAgent?: CustomAgentConfig,
-  options?: { collectionIds?: string[] }
+  options?: {
+    collectionIds?: string[];
+    isDesktop?: boolean;
+    sessionId?: string;
+    requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
+  }
 ): AsyncGenerator<{ type: string; content: string; toolCall?: any; sources?: RetrievalResult[]; tokenUsage?: any }> {
   const availableTools = await resolveAvailableTools(customAgent);
   const messages = buildInitialMessages(userMessage, chatHistory, availableTools, customAgent?.systemPrompt);
   const allSources: RetrievalResult[] = [];
   const llm = buildLLMForAgent(customAgent);
   const collectionIds = options?.collectionIds;
+  const toolContext: ToolContext = {
+    collectionIds,
+    isDesktop: options?.isDesktop,
+    sessionId: options?.sessionId,
+    requestApproval: options?.requestApproval,
+  };
   let iteration = 0;
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
@@ -1131,7 +1458,7 @@ export async function* agentRunStream(
 
         yield { type: 'tool_call', content: `调用工具: ${toolName}`, toolCall: { name: toolName, arguments: toolArgs } };
 
-        const toolResult = await executeTool(toolName, toolArgs, { collectionIds });
+        const toolResult = await executeTool(toolName, toolArgs, toolContext);
 
         yield { type: 'tool_result', content: truncateToolResult(toolName, toolResult) };
 

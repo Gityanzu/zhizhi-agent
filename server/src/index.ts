@@ -14,14 +14,19 @@ import {
   shareRoutes, importRoutes, apiKeysRoutes, externalApiRoutes, userRoutes,
   authRoutes, userApiKeysRoutes, agentMarketRoutes, ratingRoutes,
   analyticsRoutes,
+  taskRoutes,
 } from './routes';
 import commentRoutes from './routes/comment';
 import searchRoutes from './routes/search';
 import templateMarketRoutes from './routes/templateMarket';
+import workspaceRoutes from './routes/workspace';
 import { initBuiltinTemplates } from './services/prompt';
 import { handleMCPRequest, getMCPServerInfo } from './mcp/server';
 import { initEmailService } from './services/email';
 import { initRedis } from './services/cache';
+import { getSettings } from './services/userSettings';
+import { setAgentOutputDir } from './services/agentOutput';
+import { taskManager } from './services/taskManager';
 
 // 全局存储状态：是否使用 PostgreSQL（从 db.ts 导入）
 export { usePostgres } from './db';
@@ -180,6 +185,8 @@ app.use('/api/agent-market/comments', commentRoutes);
 app.use('/api/agent-market/search', searchRoutes);
 app.use('/api/agent-market/analytics', analyticsRoutes);
 app.use('/api/agent-market/templates', templateMarketRoutes);
+app.use('/api/tasks', taskRoutes);
+app.use('/api/workspace', workspaceRoutes);
 
 // 功能17：分享页面静态服务（server/public 目录）
 app.use(express.static(path.join(__dirname, '../public')));
@@ -223,6 +230,9 @@ async function startServer() {
   console.log(`LLM 配置: ${isLLMConfigured() ? '已配置' : '未配置（请设置 .env 中的 LLM_API_KEY）'}`);
   console.log('----------------------------------------');
 
+  // 初始化任务存储（加载历史任务，运行中的标记为 failed 避免悬挂）
+  taskManager.init();
+
   // 功能10：异步检测 Ollama（3秒超时，不阻塞启动）
   detectOllamaModels(true).then((models) => {
     if (isOllamaAvailable()) {
@@ -255,6 +265,17 @@ async function startServer() {
       console.log('PostgreSQL 存储已启用');
       await initBuiltinTemplates();
       console.log('内置提示词模板已初始化');
+      // 恢复用户持久化的 Agent 输出目录（桌面端"默认生成目录"设置），重启后继续生效
+      try {
+        const settings = await getSettings();
+        const dir = (settings.preferences as any)?.agentOutputDir;
+        if (dir) {
+          setAgentOutputDir(dir);
+          console.log(`Agent 输出目录已恢复: ${dir}`);
+        }
+      } catch (e) {
+        console.warn('恢复 Agent 输出目录失败:', e);
+      }
     }
   } else {
     console.log('PostgreSQL 不可用，使用 JSON 文件存储');

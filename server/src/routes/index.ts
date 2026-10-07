@@ -28,3 +28,4 @@ export { default as ratingRoutes } from './rating';
 export { default as commentRoutes } from './comment';
 export { default as analyticsRoutes } from './analytics';
 export { default as searchRoutes } from './search';
+export { default as taskRoutes } from './task';

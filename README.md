@@ -27,7 +27,9 @@
 ## 项目概览
 
 - 🧠 **统一的知识库问答体验**：支持多个任务模式切换，满足常见问答、工具调用、复杂任务规划与多 Agent 协作场景。
-- ⚙️ **可扩展的工具与 Agent 能力**：内置 13+ 个工具，支持自定义 Agent、自定义 API 工具、工作流编排与外部 MCP 接入。
+- ⚙️ **可扩展的工具与 Agent 能力**：内置 16+ 个工具（含 git 版本控制与代码库语义索引），支持自定义 Agent、自定义 API 工具、工作流编排与外部 MCP 接入。
+- 🖥️ **IDE 式代码工作台**：文件树浏览 + 代码查看 + 执行终端 + 对话（菜单"代码工作台"进入），适合 coding agent 工作流。
+- 🤖 **Plan 前置确认 + 并行子代理**：Plan 模式先生成计划、用户确认后再执行（HITL）；Multi 模式多子代理并发调度（上下文隔离），对齐 Claude Code / Qoder 的并行 agent 玩法。
 - 📚 **企业级知识库支持**：支持 PDF / Word / Markdown / TXT 多格式文档解析，支持知识库隔离、混合检索与 Rerank。
 - 📊 **可观测性与运营分析**：包含 Token 用量统计、会话统计、模型分析、调用日志、可观测性面板与审计能力。
 - 🔐 **安全与工程实践**：具备 XSS、防注入、Shell 白名单、API Key 加密存储、CORS 限制与生产环境错误隐藏等措施。
@@ -38,7 +40,7 @@
 ### 核心能力
 - 🎯 **四种任务模式**：
   - **智能问答（QA）**：直接调用大模型生成回答，响应最快
-  - **Agent 模式**：基于 Function Calling 自动识别并调用 13+ 种工具，支持多厂商模型格式兼容
+  - **Agent 模式**：基于 Function Calling 自动识别并调用 16+ 种工具，支持多厂商模型格式兼容
   - **Plan 模式**：先拆解任务为多步计划，再逐步执行并汇总回答
   - **多 Agent 协作**：Planner 规划 → Executor 执行 → Reviewer 审查 → Coordinator 汇总
 - 🔄 **动态模型切换**：支持 12+ 免费模型（通义千问、Kimi、DeepSeek、GLM 等），实时切换，**会话级模型绑定**
@@ -50,12 +52,15 @@
 - 🖼️ **多模态图片理解**：支持图片上传，使用 qwen3.5-ocr 模型理解图片内容
 - 🎙️ **语音对话**：Web Speech API 语音识别与合成
 
-### 工具系统（13+ 个工具）
+### 工具系统（16+ 个工具）
 - `search_knowledge_base` - 知识库检索（混合检索 + Rerank）
 - `calculate` - 数学计算（安全表达式解析）
 - `get_current_time` - 获取当前时间
 - `web_search` - 联网搜索（Bing）
 - `create_file` / `read_file` / `write_file` / `append_file` - 文件操作
+- `git` - 代码版本控制（status/diff/log/branch/add/commit/reset/checkout/stash/push/pull/apply，只读直跑、写需审批；apply 支持 unified diff 应用）
+- `index_codebase` - 对代码工作区建立语义索引（函数/类级语法感知分块，隔离于企业知识库）
+- `search_codebase` - 在已索引代码库中语义检索，返回文件路径、行号与代码内容
 - `list_files` / `search_files` - 文件管理
 - `run_shell` - 只读 Shell 命令（白名单限制）
 - `translate_text` - 文本翻译
@@ -308,6 +313,35 @@ POST   /api/share            - 创建分享链接
 GET    /api/share/:id        - 获取分享内容
 ```
 
+### 任务接口（异步任务引擎）
+将长任务提交到后台异步执行，前端通过 SSE 订阅进度，支持断线重连（?cursor=）与中途文件操作审批。
+```
+POST   /api/tasks              - 创建任务（body: {sessionId?, message, mode?, agentId?, collectionIds?, enableThinking?}），立即返回 {taskId, sessionId}
+GET    /api/tasks              - 任务列表（query: sessionId?, status?）
+GET    /api/tasks/:id          - 任务详情（status/result/error/usage）
+GET    /api/tasks/:id/events   - SSE 订阅进度（?cursor= 断线重连补齐历史事件）
+POST   /api/tasks/:id/cancel   - 取消任务
+POST   /api/tasks/:id/approve  - 审批挂起的文件操作（body: {approved: boolean}）
+```
+事件类型（SSE data 为 `{seq, ts, type, data}`）：`token` / `tool_call` / `tool_result` / `plan_step` / `planning` / `agent_progress` / `agent_trace` / `approval_required` / `status`（status=completed|failed|cancelled 表示结束）。
+
+前端消费示例：
+```js
+// 创建（fetch 可带鉴权头）
+const { taskId } = await fetch('/api/tasks', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ message: '帮我重构 src/utils', mode: 'agent' })
+}).then(r => r.json());
+// 订阅（EventSource 仅支持 GET，依赖 taskId 机密性鉴权）
+const es = new EventSource(`/api/tasks/${taskId}/events`);
+es.onmessage = (e) => {
+  const ev = JSON.parse(e.data);
+  // ev.type / ev.data / ev.seq（重连时传 ?cursor=ev.seq 补齐历史事件）
+  if (ev.type === 'status' && ['completed', 'failed', 'cancelled'].includes(ev.data.status)) es.close();
+};
+```
+> agent 模式下的文件写操作（本机路径）会下发 `approval_required` 事件，前端调用 `POST /api/tasks/:id/approve` 恢复执行。
+
 ### MCP 协议
 ```
 POST /mcp - MCP 标准 JSON-RPC 2.0 端点
@@ -495,6 +529,7 @@ zhizhi-agent/
 - **代码注入防护**：calculate 工具使用自写递归下降解析器，禁用 `new Function` 和 `eval`
 - **Shell 白名单**：run_shell 仅允许只读命令（ls/cat/grep/find/pwd/whoami/date/echo）
 - **文件操作沙箱**：文件工具限制在 `agent_output` 目录
+- **真实工作区**：设置 `WORKSPACE_DIR` 后，桌面端（或 `ALLOW_WEB_WORKSPACE=true` 的 Web 端）可在该目录读写真实代码库；工作区内读放行、写需审批，敏感清单（.env/密钥等）始终拒绝
 - **CORS 限制**：生产环境限制允许的来源
 - **错误隐藏**：生产环境不返回详细错误信息
 - **图片大小限制**：多模态图片上传限制 5MB

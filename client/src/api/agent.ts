@@ -22,6 +22,18 @@ export async function matchSkill(message: string) {
   return res.data;
 }
 
+// 热加载文件库技能（SKILL.md 修改后免重启）
+export async function reloadSkills(): Promise<{ success: boolean; count: number; message?: string; error?: string }> {
+  const res = await api.post('/api/skill/reload');
+  return res.data;
+}
+
+// 技能详情（SKILL.md 正文 + references）
+export async function getSkillDetail(skillId: string) {
+  const res = await api.get(`/api/skill/${encodeURIComponent(skillId)}/detail`);
+  return res.data;
+}
+
 // ===== 自定义 Agent =====
 export async function getAgents(): Promise<{ agents: CustomAgent[] }> {
   const res = await api.get('/api/agents');

@@ -13,10 +13,14 @@
  */
 
 import { tools, executeTool as agentExecuteTool } from '../services/agent';
+import { getAgentOutputDir } from '../services/agentOutput';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const AGENT_WORK_DIR = path.resolve(__dirname, '../../agent_output');
+// Agent 工作目录：与 agent.ts 统一经 getAgentOutputDir() 动态解析
+function agentWorkDir(): string {
+  return getAgentOutputDir();
+}
 
 // MCP 服务器信息
 const SERVER_INFO = {
@@ -153,7 +157,8 @@ export async function handleMCPRequest(request: any): Promise<any> {
       case 'resources/read': {
         const { uri } = params || {};
         if (uri === 'file:///workspace') {
-          const files = fs.existsSync(AGENT_WORK_DIR) ? fs.readdirSync(AGENT_WORK_DIR) : [];
+          const dir = agentWorkDir();
+          const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
           return {
             jsonrpc: '2.0',
             id,

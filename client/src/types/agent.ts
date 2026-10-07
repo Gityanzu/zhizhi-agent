@@ -8,7 +8,16 @@ export interface SkillInfo {
   icon: string;
   triggerKeywords: string[];
   allowedTools: string[];
+  source?: 'builtin' | 'file' | 'custom';
   isActive?: boolean;
+}
+
+// 技能详情（SKILL.md 正文 + references 深度文档）
+export interface SkillDetail {
+  skill: SkillInfo;
+  body: string;
+  version: string;
+  references: Array<{ name: string; content: string }>;
 }
 
 // 自定义Agent

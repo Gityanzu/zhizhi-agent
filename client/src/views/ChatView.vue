@@ -94,6 +94,9 @@
                 <el-dropdown-item command="workflow">
                   <el-icon><Share /></el-icon>工作流编排
                 </el-dropdown-item>
+                <el-dropdown-item command="codeWorkbench">
+                  <el-icon><Monitor /></el-icon>代码工作台
+                </el-dropdown-item>
                 <el-dropdown-item command="dbQuery">
                   <el-icon><Coin /></el-icon>数据库查询
                 </el-dropdown-item>
@@ -401,6 +404,9 @@ function handleHeaderMenu(command: string) {
       break
     case 'workflow':
       router.push('/workflow')
+      break
+    case 'codeWorkbench':
+      router.push('/code-workbench')
       break
     case 'dbQuery':
       showDBQuery.value = true

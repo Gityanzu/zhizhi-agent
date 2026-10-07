@@ -10,7 +10,10 @@ export type DesktopBackendState =
   | 'ok'
   | 'error'
   | 'stopped'
-  | 'unavailable';
+  | 'unavailable'
+  /** 远程模式：已连接用户配置的远程服务器（不拉起内嵌后端） */
+  | 'remote'
+  | 'remote-error';
 
 export interface DesktopBackendStatus {
   status: DesktopBackendState;
@@ -82,6 +85,28 @@ export interface DesktopResponse<T> {
   error?: string;
 }
 
+/* ---------------- 服务器连接配置（本地内嵌 ↔ 远程后端） ---------------- */
+
+export type DesktopServerMode = 'local' | 'remote';
+
+export interface DesktopServerConfig {
+  mode: DesktopServerMode;
+  /** 远程模式下的服务器基地址（http/https，不带末尾斜杠） */
+  url: string;
+}
+
+export interface DesktopServerTestResult {
+  ok: boolean;
+  status?: number;
+  latencyMs?: number;
+  error?: string;
+}
+
+export interface DesktopSetServerResult {
+  config: DesktopServerConfig;
+  backend: DesktopBackendStatus;
+}
+
 export interface DesktopApi {
   isDesktop: true;
   platform: string;
@@ -97,6 +122,7 @@ export interface DesktopApi {
   };
   file: {
     pickFiles(options?: { title?: string }): Promise<DesktopResponse<DesktopPickResult>>;
+    pickDirectory(options?: { title?: string; defaultPath?: string }): Promise<DesktopResponse<{ canceled: boolean; path: string }>>;
     readAsBase64(filePath: string): Promise<DesktopResponse<DesktopFilePayload>>;
     saveExport(payload: {
       defaultName?: string;
@@ -122,6 +148,11 @@ export interface DesktopApi {
     restart(): Promise<DesktopResponse<DesktopBackendStatus>>;
     ping(): Promise<DesktopResponse<boolean>>;
     onStatus(cb: (status: DesktopBackendStatus) => void): () => void;
+  };
+  server: {
+    getConfig(): Promise<DesktopResponse<DesktopServerConfig>>;
+    setConfig(config: DesktopServerConfig): Promise<DesktopResponse<DesktopSetServerResult>>;
+    test(url: string): Promise<DesktopResponse<DesktopServerTestResult>>;
   };
   events: {
     onHiddenToTray(cb: (payload: { at: number }) => void): () => void;

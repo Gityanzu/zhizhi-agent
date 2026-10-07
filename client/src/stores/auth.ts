@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { User, LoginParams, RegisterParams } from '../api/auth';
-import { login as apiLogin, register as apiRegister, getCurrentUser } from '../api/auth';
+import { login as apiLogin, register as apiRegister, getCurrentUser, logout as apiLogout } from '../api/auth';
 import { setToken, clearToken, getToken } from '../api/request';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -38,8 +38,13 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // 登出
-  function logout() {
+  // 登出：先通知后端拉黑 token（尽力而为，网络失败也要保证本地退出），再清本地态
+  async function logout() {
+    try {
+      if (token.value) await apiLogout();
+    } catch {
+      // 后端不可达也要退出本地登录态
+    }
     user.value = null;
     token.value = null;
     clearToken();

@@ -35,6 +35,9 @@
           <el-tab-pane name="db">
             <DBConnectionManager />
           </el-tab-pane>
+          <el-tab-pane v-if="isDesktop" name="server" label="服务器">
+            <ServerConnectionSettings />
+          </el-tab-pane>
           <el-tab-pane name="data">
             <UserSettings default-tab="data" />
           </el-tab-pane>
@@ -52,11 +55,14 @@ import UserSettings from '@/components/settings/UserSettings.vue'
 import ModelParamsPanel from '@/components/agent/ModelParamsPanel.vue'
 import ApiKeyManager from '@/components/settings/ApiKeyManager.vue'
 import DBConnectionManager from '@/components/settings/DBConnectionManager.vue'
+import ServerConnectionSettings from '@/components/settings/ServerConnectionSettings.vue'
 import ChangePasswordView from '@/views/ChangePasswordView.vue'
 import { ArrowLeft } from '@element-plus/icons-vue'
+import { useDesktop } from '@/composables/useDesktop'
 
 const router = useRouter()
 const activeTab = ref('apikey')
+const { isDesktop } = useDesktop()
 </script>
 
 <style scoped>

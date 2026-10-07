@@ -5,6 +5,9 @@ import type {
   DesktopBackendStatus,
   DesktopFileItem,
   DesktopResponse,
+  DesktopServerConfig,
+  DesktopServerTestResult,
+  DesktopSetServerResult,
   DesktopUpdateStatus,
 } from '@/types/desktop';
 
@@ -28,6 +31,7 @@ export function useDesktop() {
   const appInfo = ref<DesktopAppInfo | null>(null);
   const backendStatus = ref<DesktopBackendStatus | null>(null);
   const updateStatus = ref<DesktopUpdateStatus | null>(null);
+  const serverConfig = ref<DesktopServerConfig | null>(null);
   const lastError = ref<string | null>(null);
 
   /** 统一解包：失败时记录错误并返回 undefined，调用方不用到处写 try/catch */
@@ -48,6 +52,7 @@ export function useDesktop() {
     appInfo.value = (await unwrap(api.app.getInfo())) ?? null;
     backendStatus.value = (await unwrap(api.backend.getStatus())) ?? null;
     updateStatus.value = (await unwrap(api.update.getStatus())) ?? null;
+    serverConfig.value = (await unwrap(api.server?.getConfig())) ?? null;
 
     disposers.push(api.backend.onStatus((s) => (backendStatus.value = s)));
     disposers.push(api.update.onStatus((s) => (updateStatus.value = s)));
@@ -64,6 +69,13 @@ export function useDesktop() {
   async function pickFiles(options?: { title?: string }): Promise<DesktopFileItem[]> {
     const res = await unwrap(api?.file.pickFiles(options));
     return res?.files ?? [];
+  }
+
+  /** 选择目录（桌面端"默认输出目录"设置用），取消时返回空字符串 */
+  async function pickDirectory(options?: { title?: string; defaultPath?: string }): Promise<string> {
+    const res = await unwrap(api?.file.pickDirectory(options));
+    if (!res || res.canceled) return '';
+    return res.path || '';
   }
 
   /**
@@ -83,7 +95,7 @@ export function useDesktop() {
   async function saveExport(content: string, defaultName?: string) {
     const res = await unwrap(api?.file.saveExport({ content, defaultName }));
     if (res && !res.canceled && res.filePath) {
-      await api?.file.showItemInFolder(res.filePath);
+      await api?.file.showInFolder(res.filePath);
     }
     return res;
   }
@@ -106,13 +118,36 @@ export function useDesktop() {
     return s;
   };
 
+  /* ---------------- 服务器连接（本地内嵌 ↔ 远程后端） ---------------- */
+
+  /** 保存服务器配置并立即切换；失败返回 null，错误在 lastError 里 */
+  async function saveServerConfig(config: DesktopServerConfig): Promise<DesktopSetServerResult | null> {
+    const res = await api?.server.setConfig(config);
+    if (!res?.ok || !res.data) {
+      lastError.value = res?.error || '保存服务器配置失败';
+      return null;
+    }
+    serverConfig.value = res.data.config;
+    backendStatus.value = res.data.backend;
+    return res.data;
+  }
+
+  /** 测试远程地址连通性；不以 lastError 记录（调用方需要拿到具体失败原因展示） */
+  async function testServer(url: string): Promise<DesktopServerTestResult | null> {
+    const res = await api?.server.test(url);
+    if (!res?.ok) return { ok: false, error: res?.error || '测试接口调用失败' };
+    return res.data ?? null;
+  }
+
   return {
     isDesktop,
     appInfo,
     backendStatus,
     updateStatus,
+    serverConfig,
     lastError,
     pickFiles,
+    pickDirectory,
     toUploadFile,
     saveExport,
     notify,
@@ -120,5 +155,7 @@ export function useDesktop() {
     downloadUpdate,
     installUpdate,
     restartBackend,
+    saveServerConfig,
+    testServer,
   };
 }

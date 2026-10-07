@@ -6,7 +6,7 @@ export async function uploadDocument(file: File, collectionId?: string | null): 
   const formData = new FormData();
   formData.append('file', file);
   if (collectionId) formData.append('collectionId', collectionId);
-  const res = await api.post('/documents/upload', formData, {
+  const res = await api.post('api/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return res.data;

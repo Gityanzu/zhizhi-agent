@@ -80,6 +80,7 @@ export interface SessionInfo {
   collectionIds?: string[]; // 功能8：关联的知识库集合
   mode?: string; // 会话使用的模式：qa/agent/plan/multi
   model?: string | null; // 会话使用的模型ID
+  userId?: string | null; // 归属用户 ID（NULL = 未登录/存量匿名），用于多用户隔离
 }
 
 // 文件夹信息
@@ -89,6 +90,7 @@ export interface Folder {
   icon?: string;
   sortOrder?: number;
   createdAt?: string;
+  userId?: string | null; // 归属用户 ID，用于多用户隔离
 }
 
 // 分支信息

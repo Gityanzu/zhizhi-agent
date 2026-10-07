@@ -156,26 +156,75 @@
           <span class="stat-label">向量块</span>
         </div>
       </div>
-      <div class="user-info" @click="handleUserClick">
+      <!-- 已登录：点击用户区域弹出信息面板 -->
+      <el-popover
+        v-if="authStore.isAuthenticated"
+        placement="top-start"
+        :width="264"
+        trigger="click"
+        popper-class="user-popover"
+        :show-arrow="false"
+        :offset="10"
+        v-model:visible="userPanelVisible"
+      >
+        <template #reference>
+          <div class="user-info">
+            <div class="user-avatar">
+              <img v-if="displayAvatar" :src="displayAvatar" alt="头像" />
+              <el-icon v-else><User /></el-icon>
+            </div>
+            <div class="user-detail">
+              <div class="user-name">{{ displayName }}</div>
+              <div class="user-role">{{ displayRole }}</div>
+            </div>
+            <el-icon class="user-caret"><ArrowUp /></el-icon>
+          </div>
+        </template>
+        <div class="user-panel">
+          <div class="up-header">
+            <div class="up-avatar">
+              <img v-if="displayAvatar" :src="displayAvatar" alt="头像" />
+              <span v-else>{{ displayName.charAt(0) }}</span>
+            </div>
+            <div class="up-meta">
+              <div class="up-name">{{ displayName }}</div>
+              <div class="up-sub">{{ authStore.user?.email || '未绑定邮箱' }}</div>
+            </div>
+          </div>
+          <div class="up-stats">
+            <div class="up-stat"><span class="ups-value">{{ (chatStore.sessions || []).length }}</span><span class="ups-label">对话</span></div>
+            <div class="up-stat"><span class="ups-value">{{ (chatStore.documents || []).length }}</span><span class="ups-label">文档</span></div>
+            <div class="up-stat"><span class="ups-value">{{ joinedDate }}</span><span class="ups-label">加入</span></div>
+          </div>
+          <div class="up-menu">
+            <div class="up-item" @click="openSettingsPanel">
+              <el-icon><Setting /></el-icon><span>设置</span>
+            </div>
+            <div class="up-item" @click="navTo('/change-password')">
+              <el-icon><Lock /></el-icon><span>修改密码</span>
+            </div>
+            <div class="up-item" @click="navTo('/analytics')">
+              <el-icon><DataAnalysis /></el-icon><span>数据分析</span>
+            </div>
+            <div class="up-item" @click="navTo('/knowledge')">
+              <el-icon><Collection /></el-icon><span>我的知识库</span>
+            </div>
+          </div>
+          <div class="up-divider"></div>
+          <div class="up-item up-logout" @click="handleLogout">
+            <el-icon><SwitchButton /></el-icon><span>退出登录</span>
+          </div>
+        </div>
+      </el-popover>
+      <!-- 未登录：点击跳转登录 -->
+      <div v-else class="user-info" @click="router.push('/login')">
         <div class="user-avatar">
-          <img v-if="displayAvatar" :src="displayAvatar" alt="头像" />
-          <el-icon v-else><User /></el-icon>
+          <el-icon><User /></el-icon>
         </div>
         <div class="user-detail">
-          <div class="user-name">{{ displayName }}</div>
-          <div class="user-role">{{ displayRole }}</div>
+          <div class="user-name">未登录</div>
+          <div class="user-role">点击登录</div>
         </div>
-        <el-dropdown v-if="authStore.isAuthenticated" trigger="click" @command="handleUserCommand" class="user-dropdown" @click.stop>
-          <div class="user-more-btn">
-            <el-icon class="more-icon"><MoreFilled /></el-icon>
-          </div>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="settings">设置</el-dropdown-item>
-              <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
       </div>
     </div>
   </aside>
@@ -184,7 +233,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus, ChatDotRound, User, Folder, FolderAdd, Files, MoreFilled, Top, Upload, Collection, Service, Operation, Setting, DataAnalysis } from '@element-plus/icons-vue'
+import { Plus, ChatDotRound, User, Folder, FolderAdd, Files, MoreFilled, Top, Upload, Collection, Service, Operation, Setting, DataAnalysis, ArrowUp, Lock, SwitchButton } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
@@ -238,28 +287,43 @@ const displayAvatar = computed(() => {
   return userProfile.value.avatar
 })
 
-function handleUserClick() {
-  if (!authStore.isAuthenticated) {
-    router.push('/login')
-  } else {
-    uiStore.openSettings()
-  }
+// 加入时间（YYYY-MM）
+const joinedDate = computed(() => {
+  const c = authStore.user?.created_at
+  if (!c) return '—'
+  const d = new Date(c)
+  if (isNaN(d.getTime())) return '—'
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+})
+
+// 用户信息面板显隐（el-popover 受控）
+const userPanelVisible = ref(false)
+
+function openSettingsPanel() {
+  userPanelVisible.value = false
+  uiStore.openSettings()
 }
 
-function handleUserCommand(command: string) {
-  if (command === 'settings') {
-    uiStore.openSettings()
-  } else if (command === 'logout') {
-    ElMessageBox.confirm('确定要退出登录吗？', '确认退出', {
-      type: 'warning',
-      confirmButtonText: '退出',
-      cancelButtonText: '取消'
-    }).then(() => {
-      authStore.logout()
-      ElMessage.success('已退出登录')
-      router.push('/chat')
-    }).catch(() => {})
-  }
+function navTo(path: string) {
+  userPanelVisible.value = false
+  if (route.path !== path) router.push(path)
+}
+
+function handleLogout() {
+  userPanelVisible.value = false
+  ElMessageBox.confirm('确定要退出登录吗？', '确认退出', {
+    type: 'warning',
+    confirmButtonText: '退出',
+    cancelButtonText: '取消'
+  }).then(async () => {
+    await authStore.logout()
+    // 清空上一位用户的会话/消息态，避免登出后界面残留他人数据
+    chatStore.sessions = []
+    chatStore.messages = []
+    chatStore.currentSessionId = null
+    ElMessage.success('已退出登录')
+    router.push('/login')
+  }).catch(() => {})
 }
 
 async function loadUserProfile() {
@@ -788,6 +852,139 @@ function handleSelectSession(id: string) {
   color: var(--text-secondary);
 }
 
+.user-caret {
+  font-size: 14px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+/* 用户信息面板（el-popover 内容，slot 元素带 scope id，scoped 样式生效） */
+.user-panel {
+  padding: 4px 0;
+}
+
+.up-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 16px 12px;
+}
+
+.up-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  color: #fff;
+  font-size: 20px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.up-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.up-meta {
+  min-width: 0;
+}
+
+.up-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.up-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.up-stats {
+  display: flex;
+  margin: 0 12px 8px;
+  padding: 10px 0;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+}
+
+.up-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.ups-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ups-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.up-menu {
+  padding: 4px 6px;
+}
+
+.up-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+
+.up-item .el-icon {
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+.up-item:hover {
+  background: var(--bg-hover);
+}
+
+.up-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 6px 12px;
+}
+
+.up-logout {
+  color: var(--danger, #f56c6c);
+  margin: 0 6px;
+}
+
+.up-logout .el-icon {
+  color: var(--danger, #f56c6c);
+}
+
+.up-logout:hover {
+  background: rgba(245, 108, 108, 0.1);
+}
+
 .user-dropdown {
   margin-left: auto;
 }
@@ -836,5 +1033,21 @@ function handleSelectSession(id: string) {
   .sidebar-footer {
     padding: 12px;
   }
+}
+</style>
+
+<style>
+/* el-popover 内容被 teleport 到 body，popper 容器不带 scope id，需全局样式 */
+.user-popover.el-popper {
+  padding: 0 !important;
+  border-radius: 14px !important;
+  overflow: hidden;
+  border: 1px solid var(--border-color) !important;
+  background: var(--bg-secondary) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18) !important;
+}
+.user-popover.el-popper .popper__arrow,
+.user-popover.el-popper > .el-popper__arrow {
+  display: none !important;
 }
 </style>

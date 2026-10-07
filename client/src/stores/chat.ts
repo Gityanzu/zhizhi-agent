@@ -1,9 +1,12 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
+import { getToken } from '@/api/request';
 import type { ChatMessage, SessionInfo, DocumentInfo, Folder, BranchInfo, ModelParams, CustomAgent, CustomTool, Collection, Provider, ProviderGroup, CompareResult, ModelInfo, SkillInfo } from '@/types';
 import {
   sendMessage as apiSendMessage,
   sendMessageStream,
+  approveStream,
+  planConfirmStream,
   getSessions,
   createSession,
   deleteSession,
@@ -452,6 +455,11 @@ export const useChatStore = defineStore('chat', () => {
 
   // 加载会话列表
   async function loadSessions() {
+    // 未登录不加载任何历史会话（防御：即使绕过路由也不展示）
+    if (!getToken()) {
+      sessions.value = [];
+      return;
+    }
     try {
       sessions.value = await getSessions(activeFolderFilter.value, activeTagFilter.value || undefined);
     } catch (e) {
@@ -461,6 +469,10 @@ export const useChatStore = defineStore('chat', () => {
 
   // 加载文件夹列表
   async function loadFolders() {
+    if (!getToken()) {
+      folders.value = [];
+      return;
+    }
     try {
       const res = await getFolders();
       folders.value = res.folders || [];
@@ -714,6 +726,37 @@ export const useChatStore = defineStore('chat', () => {
                 content: (chunk as any).content,
               });
               break;
+            case 'approval_required':
+              if (chunk.requestId) {
+                msg.pendingApproval = {
+                  requestId: chunk.requestId,
+                  kind: chunk.kind || 'write',
+                  path: chunk.path || '',
+                  inRoot: chunk.inRoot ?? false,
+                  oldContent: chunk.oldContent,
+                  newContent: chunk.newContent,
+                };
+              }
+              break;
+
+            case 'plan_proposed':
+              if (chunk.requestId) {
+                msg.pendingPlan = {
+                  requestId: chunk.requestId,
+                  plan: (chunk as any).plan || [],
+                };
+              }
+              break;
+
+            case 'plan_proposed':
+              // Plan 模式前置确认：挂计划卡，后端流式循环阻塞等待用户确认
+              if (chunk.requestId) {
+                msg.pendingPlan = {
+                  requestId: chunk.requestId,
+                  plan: (chunk as any).plan || [],
+                };
+              }
+              break;
             case 'done':
               msg.isStreaming = false;
               if ((chunk as any).tokenUsage) {
@@ -755,6 +798,34 @@ export const useChatStore = defineStore('chat', () => {
     }
     await loadBranches(currentSessionId.value);
     await loadSessions();
+  }
+
+  // 桌面端文件审批：用户点击 允许/拒绝/本次会话始终允许 后调用，回调后端并本地标记已决。
+  async function respondApproval(messageId: string, approved: boolean, remember: boolean = false) {
+    const msg = messages.value.find(m => m.id === messageId);
+    if (!msg || !msg.pendingApproval || msg.pendingApproval.decided) return;
+    const requestId = msg.pendingApproval.requestId;
+    msg.pendingApproval.decided = true;
+    try {
+      await approveStream(requestId, approved, remember);
+    } catch (e) {
+      console.error('审批响应失败:', e);
+    }
+  }
+
+  // Plan 模式前置确认响应：用户点击 确认/修改后执行/取消 后调用，回调后端并本地标记已决。
+  async function respondPlan(messageId: string, confirmed: boolean, feedback?: string) {
+    const msg = messages.value.find(m => m.id === messageId);
+    if (!msg || !msg.pendingPlan || msg.pendingPlan.decided) return;
+    const requestId = msg.pendingPlan.requestId;
+    msg.pendingPlan.decided = true;
+    msg.pendingPlan.confirmed = confirmed;
+    msg.pendingPlan.feedback = feedback;
+    try {
+      await planConfirmStream(requestId, confirmed, feedback);
+    } catch (e) {
+      console.error('计划确认响应失败:', e);
+    }
   }
 
   // 删除会话
@@ -903,6 +974,20 @@ export const useChatStore = defineStore('chat', () => {
                 action: (chunk as any).action,
                 content: (chunk as any).content,
               });
+              break;
+
+            case 'approval_required':
+              // 桌面端文件审批：在当前助手消息上挂审批卡，流式循环在后端阻塞等待用户点击
+              if (chunk.requestId) {
+                msg.pendingApproval = {
+                  requestId: chunk.requestId,
+                  kind: chunk.kind || 'write',
+                  path: chunk.path || '',
+                  inRoot: chunk.inRoot ?? false,
+                  oldContent: chunk.oldContent,
+                  newContent: chunk.newContent,
+                };
+              }
               break;
 
             case 'done':
@@ -1454,6 +1539,7 @@ export const useChatStore = defineStore('chat', () => {
     switchBranch,
     loadBranches,
     editMessage,
+    respondApproval,
     stopGeneration,
     regenerate,
     removeSession,

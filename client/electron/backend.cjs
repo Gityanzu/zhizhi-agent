@@ -14,9 +14,11 @@
  */
 const { spawn } = require('child_process');
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const { BACKEND_HOST, BACKEND_PORT, USER_DIR, resolveServerEntry } = require('./paths.cjs');
+const { getRemoteTarget } = require('./serverConfig.cjs');
 
 let child = null;
 let state = { status: 'idle', message: '未启动', managed: false };
@@ -53,6 +55,37 @@ function pingHealth(timeoutMs = 1200) {
   });
 }
 
+/** 远程模式的健康检查：直接探目标服务器的 /api/health（http/https 均可） */
+function pingRemote(baseurl, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    let url;
+    try {
+      url = new URL(baseurl + '/api/health');
+    } catch (_) {
+      resolve(false);
+      return;
+    }
+    const mod = url.protocol === 'https:' ? https : http;
+    const req = mod.get(
+      {
+        host: url.hostname,
+        port: url.port || (url.protocol === 'https:' ? 443 : 80),
+        path: url.pathname,
+        timeout: timeoutMs,
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode === 200);
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+    req.on('error', () => resolve(false));
+  });
+}
+
 async function waitForHealthy(totalMs = 30000, intervalMs = 700) {
   const deadline = Date.now() + totalMs;
   while (Date.now() < deadline) {
@@ -64,10 +97,23 @@ async function waitForHealthy(totalMs = 30000, intervalMs = 700) {
 
 /**
  * 确保后端可用：
- *   - 已有实例在跑 → 直接复用（开发态最常见）
+ *   - 远程模式 → 不拉起内嵌后端，只探测远程健康（/api 反代由 hostServer 指向远程）
+ *   - 已有本地实例在跑 → 直接复用（开发态最常见）
  *   - 否则拉起子进程并等待健康
  */
 async function ensureBackend({ required = false } = {}) {
+  const remote = getRemoteTarget();
+  if (remote) {
+    setState({ status: 'starting', message: `正在连接远程服务器 ${remote}…`, managed: false });
+    const healthy = await pingRemote(remote);
+    setState({
+      status: healthy ? 'remote' : 'remote-error',
+      message: healthy ? `已连接远程服务器 ${remote}` : `远程服务器健康检查失败（${remote}），请检查地址与网络`,
+      managed: false,
+    });
+    return getState();
+  }
+
   if (await pingHealth()) {
     setState({ status: 'ok', message: '复用已有本地后端', managed: false });
     return getState();
@@ -92,6 +138,14 @@ async function ensureBackend({ required = false } = {}) {
     PORT: String(BACKEND_PORT),
     NODE_ENV: process.env.NODE_ENV || 'production',
     ZHI_USER_DATA: USER_DIR.root,
+    // 打包后的桌面应用不随包携带 server/.env，内嵌后端会缺少 PostgreSQL 连接参数，
+    // 导致登录时 pg 因空密码被解析为 null 而抛 “SASL: client password must be a string”。
+    // 这里补一组与项目约定一致的默认值（外部已显式设置的环境变量优先），指向本机标准 Postgres。
+    PG_HOST: process.env.PG_HOST || 'localhost',
+    PG_PORT: process.env.PG_PORT || '5432',
+    PG_DATABASE: process.env.PG_DATABASE || 'zhizhi_agent',
+    PG_USER: process.env.PG_USER || 'postgres',
+    PG_PASSWORD: process.env.PG_PASSWORD || 'postgres',
   };
 
   const isTs = entry.endsWith('.ts');
@@ -169,4 +223,5 @@ module.exports = {
   getState,
   onStatusChange,
   pingHealth,
+  pingRemote,
 };

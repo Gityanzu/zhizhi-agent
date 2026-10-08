@@ -10,25 +10,25 @@ export async function createTask(payload: {
   collectionIds?: string[];
   enableThinking?: boolean;
 }): Promise<{ taskId: string; sessionId: string }> {
-  const res = await api.post('/tasks', payload);
+  const res = await api.post('/api/tasks', payload);
   return res.data;
 }
 
 // 取消任务
 export async function cancelTask(taskId: string) {
-  const res = await api.post(`/tasks/${taskId}/cancel`);
+  const res = await api.post(`/api/tasks/${taskId}/cancel`);
   return res.data;
 }
 
 // 审批（文件/目录写操作）：恢复挂起的任务
 export async function approveTask(taskId: string, approved: boolean, remember: boolean = false) {
-  const res = await api.post(`/tasks/${taskId}/approve`, { approved, remember });
+  const res = await api.post(`/api/tasks/${taskId}/approve`, { approved, remember });
   return res.data;
 }
 
 // Plan 前置确认：恢复挂起的任务
 export async function planConfirmTask(taskId: string, confirmed: boolean, feedback?: string) {
-  const res = await api.post(`/tasks/${taskId}/plan-confirm`, { confirmed, feedback });
+  const res = await api.post(`/api/tasks/${taskId}/plan-confirm`, { confirmed, feedback });
   return res.data;
 }
 
@@ -96,7 +96,7 @@ export async function sendMessageViaTask(
     collectionIds?: string[];
   }
 ): Promise<{ taskId: string; sessionId: string }> {
-  const res = await api.post('/tasks', {
+  const res = await api.post('/api/tasks', {
     message,
     sessionId,
     mode,

@@ -58,6 +58,6 @@ api.interceptors.response.use(
 
 // 健康检查
 export async function healthCheck() {
-  const res = await api.get('/health');
+  const res = await api.get('/api/health');
   return res.data;
 }

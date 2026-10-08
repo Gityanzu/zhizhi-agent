@@ -2,13 +2,13 @@ import { api } from './request';
 
 // ===== 可观测性统计 =====
 export async function getObservabilityStats() {
-  const res = await api.get('/stats/observability');
+  const res = await api.get('/api/stats/observability');
   return res.data;
 }
 
 // ===== 用量统计 =====
 export async function getGlobalUsage() {
-  const res = await api.get('/usage');
+  const res = await api.get('/api/usage');
   return res.data;
 }
 

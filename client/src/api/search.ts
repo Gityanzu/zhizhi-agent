@@ -30,7 +30,7 @@ export type {
  * 搜索 Agent
  */
 export async function searchAgents(params: SearchParams): Promise<SearchResponse> {
-  const res = await api.get('/agent-market/search', {
+  const res = await api.get('/api/agent-market/search', {
     params,
   });
   return res.data;
@@ -42,7 +42,7 @@ export async function searchAgents(params: SearchParams): Promise<SearchResponse
  * 获取搜索建议
  */
 export async function getSearchSuggestions(query: string): Promise<SearchSuggestion[]> {
-  const res = await api.get('/agent-market/search/suggestions', {
+  const res = await api.get('/api/agent-market/search/suggestions', {
     params: { q: query },
   });
   return res.data;
@@ -54,7 +54,7 @@ export async function getSearchSuggestions(query: string): Promise<SearchSuggest
  * 获取热门搜索
  */
 export async function getPopularSearches(): Promise<PopularSearch[]> {
-  const res = await api.get('/agent-market/search/popular');
+  const res = await api.get('/api/agent-market/search/popular');
   return res.data;
 }
 
@@ -64,7 +64,7 @@ export async function getPopularSearches(): Promise<PopularSearch[]> {
  * 获取搜索统计
  */
 export async function getSearchStats(): Promise<SearchStats> {
-  const res = await api.get('/agent-market/search/stats');
+  const res = await api.get('/api/agent-market/search/stats');
   return res.data;
 }
 
@@ -74,7 +74,7 @@ export async function getSearchStats(): Promise<SearchStats> {
  * 获取用户搜索历史
  */
 export async function getUserSearchHistory(): Promise<SearchHistory[]> {
-  const res = await api.get('/agent-market/search/history');
+  const res = await api.get('/api/agent-market/search/history');
   return res.data;
 }
 
@@ -82,7 +82,7 @@ export async function getUserSearchHistory(): Promise<SearchHistory[]> {
  * 清除搜索历史
  */
 export async function clearSearchHistory(): Promise<void> {
-  await api.delete('/agent-market/search/history');
+  await api.delete('/api/agent-market/search/history');
 }
 
 // ==================== 高级搜索 ====================
@@ -91,7 +91,7 @@ export async function clearSearchHistory(): Promise<void> {
  * 高级搜索
  */
 export async function advancedSearch(params: AdvancedSearchParams): Promise<SearchResponse> {
-  const res = await api.post('/agent-market/search/advanced', params);
+  const res = await api.post('/api/agent-market/search/advanced', params);
   return res.data;
 }
 
@@ -153,7 +153,7 @@ export function highlightText(text: string, query: string): string {
  */
 export async function getSearchFacets(query?: string): Promise<SearchResponse['facets']> {
   const params = query ? { query } : {};
-  const res = await api.get('/agent-market/search', {
+  const res = await api.get('/api/agent-market/search', {
     params,
   });
   return res.data.facets;

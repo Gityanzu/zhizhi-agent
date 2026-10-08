@@ -66,6 +66,6 @@ export async function deleteRating(ratingId: string): Promise<void> {
  * 获取所有评分
  */
 export async function getAllRatings(): Promise<AgentRating[]> {
-  const res = await api.get('/agent-market/ratings');
+  const res = await api.get('/api/agent-market/ratings');
   return res.data;
 }

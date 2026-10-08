@@ -7,7 +7,7 @@ export async function analyzeImage(
   question: string,
   sessionId?: string
 ) {
-  const res = await api.post('/chat/vision', {
+  const res = await api.post('/api/chat/vision', {
     image: imageBase64,
     question,
     sessionId,

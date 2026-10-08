@@ -35,7 +35,7 @@ export async function exportAgentFile(agentId: string): Promise<{
 export async function importAgentFromJson(
   jsonData: string
 ): Promise<AgentImport> {
-  const res = await api.post('/agent-market/import', {
+  const res = await api.post('/api/agent-market/import', {
     ...JSON.parse(jsonData),
   });
   return res.data;
@@ -50,7 +50,7 @@ export async function importAgentFromFile(
   const formData = new FormData();
   formData.append('file', file);
 
-  const res = await api.post('/agent-market/import/file', formData, {
+  const res = await api.post('/api/agent-market/import/file', formData, {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
@@ -74,7 +74,7 @@ export async function getTemplates(
   if (category) params.category = category;
   if (search) params.search = search;
 
-  const res = await api.get('/agent-market/templates', { params });
+  const res = await api.get('/api/agent-market/templates', { params });
   return res.data;
 }
 
@@ -92,7 +92,7 @@ export async function getTemplate(id: string): Promise<AgentTemplate> {
 export async function uploadTemplate(
   template: Partial<AgentTemplate>
 ): Promise<AgentTemplate> {
-  const res = await api.post('/agent-market/templates', template);
+  const res = await api.post('/api/agent-market/templates', template);
   return res.data;
 }
 
@@ -119,6 +119,6 @@ export async function deleteTemplate(id: string): Promise<void> {
  * 获取所有分类
  */
 export async function getCategories(): Promise<string[]> {
-  const res = await api.get('/agent-market/categories');
+  const res = await api.get('/api/agent-market/categories');
   return res.data;
 }

@@ -89,7 +89,7 @@ export async function deleteComment(agentId: string, commentId: string): Promise
  * 获取所有评论
  */
 export async function getAllComments(): Promise<AgentComment[]> {
-  const res = await api.get('/agent-market/comments/admin');
+  const res = await api.get('/api/agent-market/comments/admin');
   return res.data;
 }
 

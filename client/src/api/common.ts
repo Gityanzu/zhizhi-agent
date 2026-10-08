@@ -9,12 +9,12 @@ export async function executeCode(code: string, language: string): Promise<CodeE
 
 // ===== 数据库连接管理 =====
 export async function getDBConnections(): Promise<{ connections: DBConnectionData[] }> {
-  const res = await api.get('/db/connections');
+  const res = await api.get('/api/db-connections');
   return res.data;
 }
 
 export async function createDBConnection(data: Partial<DBConnectionData> & { password?: string }): Promise<DBConnectionData> {
-  const res = await api.post('/db/connections', data);
+  const res = await api.post('/api/db-connections', data);
   return res.data;
 }
 
@@ -44,7 +44,7 @@ export async function queryDBApi(id: string, body: { question?: string; sql?: st
 
 // ===== 分享对话 =====
 export async function createShareApi(data: { sessionId: string; password?: string; expiresInHours?: number }): Promise<ShareResult> {
-  const res = await api.post('/share', data);
+  const res = await api.post('/api/shares', data);
   return res.data;
 }
 
@@ -62,7 +62,7 @@ export async function importConversationsApi(source: 'chatgpt' | 'claude', file:
   const formData = new FormData();
   formData.append('file', file);
   formData.append('source', source);
-  const res = await api.post('/import/conversations', formData, {
+  const res = await api.post('/api/import/conversations', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return res.data;

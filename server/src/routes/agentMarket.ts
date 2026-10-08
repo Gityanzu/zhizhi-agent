@@ -14,6 +14,7 @@ import {
   type AgentImport,
 } from '../services/agentMarket';
 import { v4 as uuidv4 } from 'uuid';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 
@@ -23,7 +24,7 @@ const router = Router();
  * 导出 Agent 为 JSON 格式
  * POST /api/agent-market/export/:id
  */
-router.post('/export/:id', async (req: Request, res: Response) => {
+router.post('/export/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -53,7 +54,7 @@ router.post('/export/:id', async (req: Request, res: Response) => {
  * 导出 Agent 为文件
  * POST /api/agent-market/export/:id/file
  */
-router.post('/export/:id/file', async (req: Request, res: Response) => {
+router.post('/export/:id/file', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -84,7 +85,7 @@ router.post('/export/:id/file', async (req: Request, res: Response) => {
  * 从 JSON 导入 Agent
  * POST /api/agent-market/import
  */
-router.post('/import', async (req: Request, res: Response) => {
+router.post('/import', requireAuth, async (req: Request, res: Response) => {
   try {
     const { name, avatar, description, systemPrompt, model, tools, temperature } =
       req.body;
@@ -128,7 +129,7 @@ router.post('/import', async (req: Request, res: Response) => {
  * 从文件导入 Agent
  * POST /api/agent-market/import/file
  */
-router.post('/import/file', async (req: Request, res: Response) => {
+router.post('/import/file', requireAuth, async (req: Request, res: Response) => {
   try {
     const { file } = req;
 
@@ -224,7 +225,7 @@ router.get('/templates/:id', async (req: Request, res: Response) => {
  * 上传模板（管理员功能）
  * POST /api/agent-market/templates
  */
-router.post('/templates', async (req: Request, res: Response) => {
+router.post('/templates', requireAuth, async (req: Request, res: Response) => {
   try {
     const {
       name,
@@ -307,7 +308,7 @@ router.get('/templates/:id/download', async (req: Request, res: Response) => {
  * 删除模板
  * DELETE /api/agent-market/templates/:id
  */
-router.delete('/templates/:id', async (req: Request, res: Response) => {
+router.delete('/templates/:id', requireAuth, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

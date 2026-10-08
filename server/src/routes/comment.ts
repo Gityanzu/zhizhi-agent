@@ -9,11 +9,15 @@ import {
   getCommentStats,
   getAllComments,
   getUserComments,
+  moderateComment,
+  getPendingComments,
+  getHiddenComments,
+  batchModerateComments,
 } from '../services/comment';
 import type { CommentRequest, LikeRequest, CommentTree, CommentStats } from '../types/comment';
 
 const router = Router();
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, type AuthRequest } from '../middleware/auth';
 router.use(requireAuth);
 
 // ==================== 评论操作 ====================
@@ -22,7 +26,7 @@ router.use(requireAuth);
  * 发表评论
  * POST /api/agent-market/comments/:id
  */
-router.post('/:id', async (req: Request, res: Response) => {
+router.post('/:id([0-9a-fA-F-]{36})', async (req: Request, res: Response) => {
   try {
     const { id: agentId } = req.params;
     const { content } = req.body;
@@ -79,7 +83,7 @@ router.post('/:id', async (req: Request, res: Response) => {
  * 获取评论列表
  * GET /api/agent-market/comments/:id?page=1&pageSize=10
  */
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id([0-9a-fA-F-]{36})', async (req: Request, res: Response) => {
   try {
     const { id: agentId } = req.params;
     const page = parseInt(req.query.page as string) || 1;
@@ -112,7 +116,7 @@ router.get('/:id', async (req: Request, res: Response) => {
  * 获取评论详情
  * GET /api/agent-market/comments/:id/:commentId
  */
-router.get('/:id/:commentId', async (req: Request, res: Response) => {
+router.get('/:id([0-9a-fA-F-]{36})/:commentId', async (req: Request, res: Response) => {
   try {
     const { commentId } = req.params;
 
@@ -150,7 +154,7 @@ router.get('/:id/:commentId', async (req: Request, res: Response) => {
  * 获取评论树结构
  * GET /api/agent-market/comments/:id/tree
  */
-router.get('/:id/tree', async (req: Request, res: Response) => {
+router.get('/:id([0-9a-fA-F-]{36})/tree', async (req: Request, res: Response) => {
   try {
     const { id: agentId } = req.params;
 
@@ -181,7 +185,7 @@ router.get('/:id/tree', async (req: Request, res: Response) => {
  * 获取评论统计
  * GET /api/agent-market/comments/:id/stats
  */
-router.get('/:id/stats', async (req: Request, res: Response) => {
+router.get('/:id([0-9a-fA-F-]{36})/stats', async (req: Request, res: Response) => {
   try {
     const { id: agentId } = req.params;
 
@@ -221,16 +225,10 @@ router.get('/:id/stats', async (req: Request, res: Response) => {
  * 点赞评论
  * POST /api/agent-market/comments/:id/like
  */
-router.post('/:id/like', async (req: Request, res: Response) => {
+router.post('/:id([0-9a-fA-F-]{36})/like', async (req: AuthRequest, res: Response) => {
   try {
-    const { userId } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({
-        code: 400,
-        message: '用户 ID 不能为空',
-      });
-    }
+    // 点赞身份取自已登录态，不信任请求体（防冒名）
+    const userId = req.userId!;
 
     // 从 URL 获取评论 ID
     const commentId = req.params.id;
@@ -267,7 +265,7 @@ router.post('/:id/like', async (req: Request, res: Response) => {
  * 删除评论
  * DELETE /api/agent-market/comments/:id/:commentId
  */
-router.delete('/:id/:commentId', async (req: Request, res: Response) => {
+router.delete('/:id([0-9a-fA-F-]{36})/:commentId', async (req: AuthRequest, res: Response) => {
   try {
     const { commentId } = req.params;
 
@@ -275,6 +273,21 @@ router.delete('/:id/:commentId', async (req: Request, res: Response) => {
       return res.status(400).json({
         code: 400,
         message: '评论 ID 不能为空',
+      });
+    }
+
+    // 归属校验：仅评论作者或管理员可删除（防 IDOR）
+    const existing = await getComment(commentId);
+    if (!existing) {
+      return res.status(404).json({
+        code: 404,
+        message: '评论不存在',
+      });
+    }
+    if (existing.userId !== req.userId && req.user?.role !== 'admin') {
+      return res.status(403).json({
+        code: 403,
+        message: '无权删除他人评论',
       });
     }
 

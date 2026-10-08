@@ -41,6 +41,10 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
 
 // 查询某会话的分享列表
 router.get('/session/:sessionId', requireAuth, async (req: AuthRequest, res: Response) => {
+  // 归属校验：仅会话所有者可查看其分享列表（防 IDOR）
+  if (req.userId && !(await assertSessionOwner(req.params.sessionId, req.userId))) {
+    return res.status(404).json({ error: '会话不存在' });
+  }
   const shares = await listSharesBySession(req.params.sessionId);
   res.json({
     shares: shares.map(s => ({
@@ -88,6 +92,10 @@ router.post('/:token/messages', async (req: Request, res: Response) => {
 router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   const existed = await getShareById(req.params.id);
   if (!existed) {
+    return res.status(404).json({ error: '分享不存在' });
+  }
+  // 归属校验：仅会话所有者可撤销其分享（防 IDOR）
+  if (req.userId && existed.sessionId && !(await assertSessionOwner(existed.sessionId, req.userId))) {
     return res.status(404).json({ error: '分享不存在' });
   }
   await revokeShare(req.params.id);

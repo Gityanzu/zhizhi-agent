@@ -5,8 +5,10 @@
 
 import { query } from '../db';
 import crypto from 'crypto';
+import { resolveSecret } from '../utils/devSecret';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'zhizhi-agent-jwt-secret-2026';
+// 与 services/auth.ts 共用同一密钥来源（环境变量或本机持久化密钥）
+const JWT_SECRET = resolveSecret('JWT_SECRET', 'jwt');
 const ACCESS_TOKEN_EXPIRES_IN = 15 * 60 * 1000; // 15 分钟
 const REFRESH_TOKEN_EXPIRES_IN = 7 * 24 * 60 * 60 * 1000; // 7 天
 const PASSWORD_RESET_TOKEN_EXPIRES_IN = 60 * 60 * 1000; // 1 小时

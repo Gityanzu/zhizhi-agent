@@ -1,8 +1,9 @@
 import { query } from '../db';
 import crypto from 'crypto';
+import { resolveSecret } from '../utils/devSecret';
 
-// 加密密钥
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'zhizhi-agent-local-encryption-key-2026';
+// 加密密钥（生产必须配置 ENCRYPTION_KEY；开发期生成本机持久化密钥）
+const ENCRYPTION_KEY = resolveSecret('ENCRYPTION_KEY', 'enc');
 
 function encrypt(text: string): string {
   const iv = crypto.randomBytes(16);

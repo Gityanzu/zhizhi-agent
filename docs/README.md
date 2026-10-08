@@ -119,6 +119,9 @@
 - 快速开始指南 → API端点列表
 - 实施进度 → API详情
 
+### 架构与设计
+- [异步任务引擎（/api/tasks）架构说明](./ARCHITECTURE_TASK_ENGINE.md) ⭐ 任务状态机 / HITL 审批 / Plan 前置确认 / SSE 事件流
+
 ---
 
 ## 🚀 下一步

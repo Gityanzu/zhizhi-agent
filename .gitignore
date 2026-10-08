@@ -20,6 +20,9 @@ dist-ssr/
 .env.local
 .env.*.local
 
+# 开发期本机持久化密钥（不入库）
+.dev-*-secret
+
 # Data
 data/chroma/
 data/uploads/

@@ -8,14 +8,20 @@ import {
   revokeShare,
   isExpired,
 } from '../services/share';
+import { requireAuth } from '../middleware/auth';
+import { assertSessionOwner } from '../services/session';
 
 const router = Router();
 
 // 创建分享：POST /api/shares  body: { sessionId, password?, expiresInHours? }
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth, async (req: AuthRequest, res: Response) => {
   const { sessionId, password, expiresInHours } = req.body || {};
   if (!sessionId) {
     return res.status(400).json({ error: 'sessionId 不能为空' });
+  }
+  // 登录用户仅可分享自己的会话（防越权读取他人私聊）
+  if (req.userId && !(await assertSessionOwner(sessionId, req.userId))) {
+    return res.status(403).json({ error: '无权分享该会话' });
   }
   const share = await createShare(
     sessionId,
@@ -34,7 +40,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // 查询某会话的分享列表
-router.get('/session/:sessionId', async (req: Request, res: Response) => {
+router.get('/session/:sessionId', requireAuth, async (req: AuthRequest, res: Response) => {
   const shares = await listSharesBySession(req.params.sessionId);
   res.json({
     shares: shares.map(s => ({
@@ -79,7 +85,7 @@ router.post('/:token/messages', async (req: Request, res: Response) => {
 });
 
 // 撤销分享：DELETE /api/shares/:id
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth, async (req: AuthRequest, res: Response) => {
   const existed = await getShareById(req.params.id);
   if (!existed) {
     return res.status(404).json({ error: '分享不存在' });

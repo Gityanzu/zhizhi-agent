@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { createApiKey, listApiKeys, deleteApiKey } from '../services/apiKey';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 // 列出 API Key
 router.get('/', async (req: Request, res: Response) => {

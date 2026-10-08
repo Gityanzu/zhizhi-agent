@@ -12,6 +12,8 @@ import {
 } from '../services/dbQuery';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 // 获取所有连接（不返回密码）
 router.get('/', async (req: Request, res: Response) => {

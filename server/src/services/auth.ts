@@ -1,8 +1,10 @@
 import db, { getPool } from '../db';
 import crypto from 'crypto';
+import { resolveSecret } from '../utils/devSecret';
 
 // JWT 简单实现（不依赖外部库）
-const JWT_SECRET = process.env.JWT_SECRET || 'zhizhi-agent-jwt-secret-2026';
+// 生产必须配置 JWT_SECRET；开发期未配置时生成本机持久化密钥（不硬编码于源码）
+const JWT_SECRET = resolveSecret('JWT_SECRET', 'jwt');
 const JWT_EXPIRES_IN = 7 * 24 * 60 * 60 * 1000; // 7天
 
 function base64UrlEncode(str: string): string {
@@ -104,7 +106,9 @@ export async function register(username: string, password: string, email?: strin
 export async function login(username: string, password: string): Promise<{ user: User; token: string }> {
   const pool = getPool();
   
-  console.log('🔍 [DEBUG] login function called with username:', username);
+  if (process.env.NODE_ENV !== 'production') {
+    console.log('[DEBUG] login attempt for user:', username);
+  }
   
   const result = await pool.query(
     'SELECT id, username, email, password_hash, nickname, avatar, role, status, created_at FROM users WHERE username = $1',

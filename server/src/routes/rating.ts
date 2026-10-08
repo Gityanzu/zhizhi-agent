@@ -19,6 +19,8 @@ import type {
 } from '../types/rating';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 /**
  * 创建评分

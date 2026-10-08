@@ -9,6 +9,8 @@ import {
 } from '../services/customTool';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 // 获取所有自定义工具
 router.get('/', async (req: Request, res: Response) => {

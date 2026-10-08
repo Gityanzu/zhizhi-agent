@@ -27,8 +27,10 @@ import type {
   TemplateFavorite,
   TemplateReport,
 } from '../types/template';
+import { requireAuth } from '../middleware/auth';
 
 const router = Router();
+router.use(requireAuth);
 
 /**
  * 获取模板列表

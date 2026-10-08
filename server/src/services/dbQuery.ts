@@ -35,7 +35,12 @@ export interface QueryResult {
 
 // ==================== 密码加密（简单可逆，Base64+固定密钥异或） ====================
 
-const ENC_KEY = 'zhizhi_db_enc_2024';
+const configDbEncKey = process.env.ENC_KEY;
+if (!configDbEncKey && process.env.NODE_ENV === 'production') {
+  throw new Error('ENC_KEY 未配置：生产环境禁止启动');
+}
+// 生产必须配置 ENC_KEY；开发期保留旧值以兼容已存数据库连接口令（仅本地安全边界内）
+const ENC_KEY = configDbEncKey || 'zhizhi_db_enc_2024';
 
 function encrypt(plain: string): string {
   try {

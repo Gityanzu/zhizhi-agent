@@ -13,6 +13,8 @@ import {
 import type { CommentRequest, LikeRequest, CommentTree, CommentStats } from '../types/comment';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 // ==================== 评论操作 ====================
 
@@ -23,7 +25,7 @@ const router = Router();
 router.post('/:id', async (req: Request, res: Response) => {
   try {
     const { id: agentId } = req.params;
-    const { content, userId } = req.body;
+    const { content } = req.body;
     const { parentId } = req.query;
 
     // 验证 Agent ID
@@ -31,14 +33,6 @@ router.post('/:id', async (req: Request, res: Response) => {
       return res.status(400).json({
         code: 400,
         message: 'Agent ID 不能为空',
-      });
-    }
-
-    // 验证用户 ID
-    if (!userId) {
-      return res.status(400).json({
-        code: 400,
-        message: '用户 ID 不能为空',
       });
     }
 
@@ -50,7 +44,7 @@ router.post('/:id', async (req: Request, res: Response) => {
       });
     }
 
-    // 创建评论
+    // 创建评论（身份取自已登录态，不信任请求体，防冒名）
     const commentData: CommentRequest = {
       agentId,
       content,
@@ -62,7 +56,7 @@ router.post('/:id', async (req: Request, res: Response) => {
 
     const result = await createComment({
       ...commentData,
-      userId,
+      userId: req.userId!,
     });
 
     res.json({
@@ -238,8 +232,8 @@ router.post('/:id/like', async (req: Request, res: Response) => {
       });
     }
 
-    // 从 URL 获取评论 ID（假设是评论的详情页面）
-    const commentId = req.params.commentId;
+    // 从 URL 获取评论 ID
+    const commentId = req.params.id;
     if (!commentId) {
       return res.status(400).json({
         code: 400,

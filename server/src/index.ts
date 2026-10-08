@@ -27,6 +27,7 @@ import { initRedis } from './services/cache';
 import { getSettings } from './services/userSettings';
 import { setAgentOutputDir } from './services/agentOutput';
 import { taskManager } from './services/taskManager';
+import { requireAuth } from './middleware/auth';
 
 // 全局存储状态：是否使用 PostgreSQL（从 db.ts 导入）
 export { usePostgres } from './db';
@@ -96,7 +97,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // 数据库状态检查
-app.get('/api/db/check', async (req, res) => {
+app.get('/api/db/check', requireAuth, async (req, res) => {
   try {
     const { query } = await import('./db');
     const result = await query('SELECT 1 as test');
@@ -116,7 +117,7 @@ app.get('/api/db/check', async (req, res) => {
 });
 
 // Redis 缓存状态
-app.get('/api/cache/status', async (req, res) => {
+app.get('/api/cache/status', requireAuth, async (req, res) => {
   try {
     const { isRedisAvailable } = await import('./services/cache');
     const available = isRedisAvailable();
@@ -135,7 +136,7 @@ app.get('/api/cache/status', async (req, res) => {
 });
 
 // 系统统计信息
-app.get('/api/stats/system', async (req, res) => {
+app.get('/api/stats/system', requireAuth, async (req, res) => {
   try {
     const { query } = await import('./db');
     
@@ -203,8 +204,8 @@ app.get('/share/:token', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/share.html'));
 });
 
-// MCP 协议端点
-app.post('/mcp', async (req, res) => {
+// MCP 协议端点（危险工具：run_shell/code_interpreter/read_file 等，必须鉴权）
+app.post('/mcp', requireAuth, async (req, res) => {
   const result = await handleMCPRequest(req.body);
   if (result === null) {
     res.status(204).send(); // 通知不需要响应

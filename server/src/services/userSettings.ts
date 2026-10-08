@@ -1,5 +1,6 @@
 import { query } from '../db';
 import crypto from 'crypto';
+import { resolveSecret } from '../utils/devSecret';
 import { setAgentOutputDir } from './agentOutput';
 
 export interface UserProfile {
@@ -29,7 +30,8 @@ export interface LLMKey {
 }
 
 // 加密密钥（本地使用，简单加密）
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'zhizhi-agent-local-encryption-key-2026';
+// 生产必须配置 ENCRYPTION_KEY；开发期未配置时生成本机持久化密钥（不硬编码于源码）
+const ENCRYPTION_KEY = resolveSecret('ENCRYPTION_KEY', 'enc');
 
 function encrypt(text: string): string {
   const iv = crypto.randomBytes(16);
@@ -173,10 +175,13 @@ export async function importAllData(data: any) {
       for (const row of data[table]) {
         try {
           const columns = Object.keys(row);
-          const values = Object.values(row);
+          // 校验列名，防止 JSON 键名作为 SQL 标识符注入（如 "x); DROP TABLE users; --"）
+          const safeCols = columns.filter((c) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(c));
+          if (safeCols.length !== columns.length) continue; // 跳过含非法列名的记录
+          const values = safeCols.map((c) => (row as any)[c]);
           const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
           await query(
-            `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
+            `INSERT INTO ${table} (${safeCols.join(', ')}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
             values
           );
           imported++;

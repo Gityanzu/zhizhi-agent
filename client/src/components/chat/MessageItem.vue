@@ -366,7 +366,8 @@ function retrievalMethodLabel(method?: string): string {
 // 将内容片段中的 <mark> 渲染为高亮（v-html）
 function snippetHtml(src: any): string {
   if (!src) return ''
-  return src.highlightedContent || src.content || ''
+  const raw = src.highlightedContent || src.content || ''
+  return DOMPurify.sanitize(raw)
 }
 
 function startEdit() {

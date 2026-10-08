@@ -21,6 +21,7 @@ import {
 import { getAgentOutputDir } from '../services/agentOutput';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
 
 const IGNORE_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt',
@@ -71,7 +72,7 @@ function resolveScope(raw?: string | string[]): string {
 }
 
 // 目录树
-router.get('/tree', (req, res) => {
+router.get('/tree', requireAuth, (req, res) => {
   try {
     const target = resolveTarget(resolveScope(req.query.path));
     if (classify('read', target, config.isDesktop) === 'deny') {
@@ -88,7 +89,7 @@ router.get('/tree', (req, res) => {
 });
 
 // 文件内容
-router.get('/file', (req, res) => {
+router.get('/file', requireAuth, (req, res) => {
   try {
     const target = resolveTarget(resolveScope(req.query.path));
     if (classify('read', target, config.isDesktop) === 'deny') {

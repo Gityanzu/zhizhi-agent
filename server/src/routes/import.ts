@@ -3,6 +3,8 @@ import multer from 'multer';
 import { importChatGPTConversations, importClaudeConversations } from '../services/importData';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 // 内存存储（JSON 导出文件通常不大，直接读入解析）
 const upload = multer({

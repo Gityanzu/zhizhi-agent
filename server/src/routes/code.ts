@@ -1,10 +1,11 @@
 import { Router, Request, Response } from 'express';
+import { requireAuth } from '../middleware/auth';
 import { executeCode } from '../services/codeExecutor';
 
 const router = Router();
 
 // 直接执行代码接口（供前端代码块"运行"按钮使用）
-router.post('/execute', async (req: Request, res: Response) => {
+router.post('/execute', requireAuth, async (req: Request, res: Response) => {
   try {
     const { code, language } = req.body;
     if (!code || typeof code !== 'string') {

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { getSettings, updateProfile, updatePreferences, addLLMKey, deleteLLMKey, exportAllData, importAllData } from '../services/userSettings';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 // 获取用户设置
 router.get('/settings', async (req, res) => {

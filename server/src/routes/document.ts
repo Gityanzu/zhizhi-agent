@@ -14,6 +14,8 @@ import {
 } from '../services/collection';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 // 修复 multer 中文文件名乱码：将 Latin1 编码转换为 UTF-8
 function decodeFilename(filename: string): string {

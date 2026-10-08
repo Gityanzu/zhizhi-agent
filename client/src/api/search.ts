@@ -141,11 +141,22 @@ export function getTrendIcon(trend: 'up' | 'down' | 'stable'): string {
 /**
  * 高亮搜索关键词
  */
-export function highlightText(text: string, query: string): string {
-  if (!query) return text;
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>
+  )[c]);
+}
 
-  const regex = new RegExp(`(${query})`, 'gi');
-  return text.replace(regex, '<mark>$1</mark>');
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function highlightText(text: string, query: string): string {
+  const safe = escapeHtml(text);
+  if (!query) return safe;
+
+  const regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
+  return safe.replace(regex, '<mark>$1</mark>');
 }
 
 /**

@@ -18,11 +18,13 @@ export function resolveSecret(envName: string, fileTag: string): string {
   }
   const f = path.join(process.cwd(), `.dev-${fileTag}-secret`);
   try {
+    // 已存在则顺手收紧权限（兼容此前以默认权限创建的密钥文件）
+    try { fs.chmodSync(f, 0o600); } catch { /* ignore */ }
     return fs.readFileSync(f, 'utf-8').trim();
   } catch {
     const k = crypto.randomBytes(32).toString('hex');
     try {
-      fs.writeFileSync(f, k);
+      fs.writeFileSync(f, k, { mode: 0o600 });
     } catch {
       // 写入失败则回退为本次进程内随机密钥
     }

@@ -16,19 +16,19 @@ function parseToken(req: AuthRequest): { userId: string; username: string } | nu
 
 // 加载用户并挂载到 req.user（用于 RBAC/归属校验）
 async function attachUser(req: AuthRequest, payload: { userId: string; username: string }): Promise<{ ok: boolean; code?: number; error?: string }> {
-  req.userId = payload.userId;
-  req.username = payload.username;
   try {
     const user = await getUserById(payload.userId);
-    if (user) {
-      if (user.status && user.status !== 'active') {
-        return { ok: false, code: 403, error: '账号已被禁用' };
-      }
-      req.user = user;
-      if (!req.username) req.username = user.username;
+    // 账号被禁用：校验在注入身份之前，避免 optionalAuth 忽略返回值时仍获得身份
+    if (user && user.status && user.status !== 'active') {
+      return { ok: false, code: 403, error: '账号已被禁用' };
     }
+    req.userId = payload.userId;
+    req.username = payload.username || user?.username;
+    if (user) req.user = user;
   } catch {
-    // userId 非法 UUID 或查询失败时不阻断，仅不注入 req.user
+    // userId 非法 UUID 或查询失败时：保持旧行为，仅注入 userId（不注入 req.user）
+    req.userId = payload.userId;
+    req.username = payload.username;
   }
   return { ok: true };
 }
@@ -43,8 +43,9 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   try {
     const result = await attachUser(req, payload);
     if (!result.ok) return res.status(result.code || 403).json({ error: result.error || '无权访问' });
-  } catch {
-    // 极端情况下不阻断请求
+  } catch (err) {
+    // 极端情况下不阻断请求，但记录告警便于排查（避免静默失败）
+    console.warn('[auth] requireAuth 加载用户失败:', err instanceof Error ? err.message : err);
   }
   next();
 }

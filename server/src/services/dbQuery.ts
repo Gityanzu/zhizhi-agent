@@ -187,6 +187,8 @@ export async function getAllConnections(userId?: string | null): Promise<Array<O
 export async function updateConnection(id: string, data: Partial<DBConnection>, userId?: string | null): Promise<Omit<DBConnection, 'password'> | null> {
   const existing = await getConnection(id, userId);
   if (!existing) return null;
+  // 写入操作严格要求归属本人（存量无主不允许普通用户修改）
+  if (userId && existing.userId !== userId) return null;
 
   const updated: DBConnection = {
     ...existing,
@@ -198,7 +200,7 @@ export async function updateConnection(id: string, data: Partial<DBConnection>, 
   if (usePostgres) {
     const res = userId
       ? await query(
-          `UPDATE db_connections SET name=$1, type=$2, host=$3, port=$4, database=$5, username=$6, password=$7 WHERE id=$8 AND (user_id = $9 OR user_id IS NULL)`,
+          `UPDATE db_connections SET name=$1, type=$2, host=$3, port=$4, database=$5, username=$6, password=$7 WHERE id=$8 AND user_id = $9`,
           [updated.name, updated.type, updated.host, updated.port, updated.database, updated.username, updated.password, id, userId]
         )
       : await query(
@@ -216,15 +218,17 @@ export async function updateConnection(id: string, data: Partial<DBConnection>, 
 
 export async function deleteConnection(id: string, userId?: string | null): Promise<boolean> {
   if (usePostgres) {
+    // 删除严格要求归属本人；user_id IS NULL 的存量无主连接不允许普通用户删除
     const result = userId
-      ? await query('DELETE FROM db_connections WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)', [id, userId])
+      ? await query('DELETE FROM db_connections WHERE id = $1 AND user_id = $2', [id, userId])
       : await query('DELETE FROM db_connections WHERE id = $1', [id]);
     return (result.rowCount || 0) > 0;
   } else {
     loadFromFile();
     const conn = connsMap.get(id);
     if (!conn) return false;
-    if (userId && conn.userId && conn.userId !== userId) return false;
+    // 严格要求归属本人（存量无主同样拒绝）
+    if (userId && conn.userId !== userId) return false;
     connsMap.delete(id);
     saveToFile();
     return true;

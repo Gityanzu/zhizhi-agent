@@ -26,7 +26,7 @@ router.use(requireAuth);
  * 发表评论
  * POST /api/agent-market/comments/:id
  */
-router.post('/:id([0-9a-fA-F-]{36})', async (req: Request, res: Response) => {
+router.post('/:id([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})', async (req: Request, res: Response) => {
   try {
     const { id: agentId } = req.params;
     const { content } = req.body;
@@ -83,7 +83,7 @@ router.post('/:id([0-9a-fA-F-]{36})', async (req: Request, res: Response) => {
  * 获取评论列表
  * GET /api/agent-market/comments/:id?page=1&pageSize=10
  */
-router.get('/:id([0-9a-fA-F-]{36})', async (req: Request, res: Response) => {
+router.get('/:id([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})', async (req: Request, res: Response) => {
   try {
     const { id: agentId } = req.params;
     const page = parseInt(req.query.page as string) || 1;
@@ -116,7 +116,7 @@ router.get('/:id([0-9a-fA-F-]{36})', async (req: Request, res: Response) => {
  * 获取评论详情
  * GET /api/agent-market/comments/:id/:commentId
  */
-router.get('/:id([0-9a-fA-F-]{36})/:commentId', async (req: Request, res: Response) => {
+router.get('/:id([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/:commentId', async (req: Request, res: Response) => {
   try {
     const { commentId } = req.params;
 
@@ -154,7 +154,7 @@ router.get('/:id([0-9a-fA-F-]{36})/:commentId', async (req: Request, res: Respon
  * 获取评论树结构
  * GET /api/agent-market/comments/:id/tree
  */
-router.get('/:id([0-9a-fA-F-]{36})/tree', async (req: Request, res: Response) => {
+router.get('/:id([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/tree', async (req: Request, res: Response) => {
   try {
     const { id: agentId } = req.params;
 
@@ -185,7 +185,7 @@ router.get('/:id([0-9a-fA-F-]{36})/tree', async (req: Request, res: Response) =>
  * 获取评论统计
  * GET /api/agent-market/comments/:id/stats
  */
-router.get('/:id([0-9a-fA-F-]{36})/stats', async (req: Request, res: Response) => {
+router.get('/:id([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/stats', async (req: Request, res: Response) => {
   try {
     const { id: agentId } = req.params;
 
@@ -225,7 +225,7 @@ router.get('/:id([0-9a-fA-F-]{36})/stats', async (req: Request, res: Response) =
  * 点赞评论
  * POST /api/agent-market/comments/:id/like
  */
-router.post('/:id([0-9a-fA-F-]{36})/like', async (req: AuthRequest, res: Response) => {
+router.post('/:id([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/like', async (req: AuthRequest, res: Response) => {
   try {
     // 点赞身份取自已登录态，不信任请求体（防冒名）
     const userId = req.userId!;
@@ -265,7 +265,7 @@ router.post('/:id([0-9a-fA-F-]{36})/like', async (req: AuthRequest, res: Respons
  * 删除评论
  * DELETE /api/agent-market/comments/:id/:commentId
  */
-router.delete('/:id([0-9a-fA-F-]{36})/:commentId', async (req: AuthRequest, res: Response) => {
+router.delete('/:id([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/:commentId', async (req: AuthRequest, res: Response) => {
   try {
     const { commentId } = req.params;
 

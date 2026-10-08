@@ -154,15 +154,16 @@ export async function listApiKeys(userId?: string | null): Promise<ApiKeyRecord[
 
 export async function deleteApiKey(id: string, userId?: string | null): Promise<boolean> {
   if (usePostgres) {
+    // 删除严格要求归属本人；user_id IS NULL 的存量无主 Key 不允许普通用户删除
     const result = userId
-      ? await query('DELETE FROM api_keys WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)', [id, userId])
+      ? await query('DELETE FROM api_keys WHERE id = $1 AND user_id = $2', [id, userId])
       : await query('DELETE FROM api_keys WHERE id = $1', [id]);
     return (result.rowCount || 0) > 0;
   } else {
     const item = store.get(id);
     if (!item) return false;
-    // 有主且非本人 → 拒绝
-    if (userId && item.userId && item.userId !== userId) return false;
+    // 严格要求归属本人（存量无主同样拒绝）
+    if (userId && item.userId !== userId) return false;
     store.delete(id);
     saveToFile();
     return true;

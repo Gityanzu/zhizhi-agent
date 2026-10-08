@@ -139,14 +139,27 @@ export async function login(username: string, password: string): Promise<{ user:
   return { user: userWithoutPassword as User, token };
 }
 
+// 用户信息短 TTL 缓存：requireAuth 每个已鉴权请求都会调用 getUserById，避免每次都查库
+const userCache = new Map<string, { user: User | null; at: number }>();
+const USER_CACHE_TTL = 10_000; // 10 秒
+
+// 资料/角色/状态变更后调用，避免缓存陈旧
+export function invalidateUserCache(userId: string): void {
+  userCache.delete(userId);
+}
+
 export async function getUserById(userId: string): Promise<User | null> {
+  const cached = userCache.get(userId);
+  if (cached && Date.now() - cached.at < USER_CACHE_TTL) return cached.user;
+
   const pool = getPool();
-  
   const result = await pool.query(
     'SELECT id, username, email, nickname, avatar, role, status, created_at FROM users WHERE id = $1',
     [userId]
   );
-  return result.rows[0] as User || null;
+  const user = (result.rows[0] as User) || null;
+  userCache.set(userId, { user, at: Date.now() });
+  return user;
 }
 
 export async function updateProfile(userId: string, data: { nickname?: string; avatar?: string; email?: string }): Promise<User> {
@@ -175,6 +188,7 @@ export async function updateProfile(userId: string, data: { nickname?: string; a
      RETURNING id, username, email, nickname, avatar, role, status, created_at`,
     values
   );
+  invalidateUserCache(userId);
   return result.rows[0] as User;
 }
 

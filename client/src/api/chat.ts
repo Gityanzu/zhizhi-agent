@@ -76,26 +76,26 @@ export async function updateFolderApi(folderId: string, name?: string, icon?: st
 }
 
 export async function deleteFolderApi(folderId: string) {
-  await api.delete(`/sessions/folders/${folderId}`);
+  await api.delete(`/api/sessions/folders/${folderId}`);
 }
 
 // ===== 会话归类 / 置顶 / 标签 =====
 export async function moveToFolderApi(sessionId: string, folderId: string | null) {
-  const res = await api.put(`/sessions/${sessionId}/folder`, { folderId });
+  const res = await api.put(`/api/sessions/${sessionId}/folder`, { folderId });
   return res.data;
 }
 
 export async function togglePinApi(sessionId: string) {
-  const res = await api.post(`/sessions/${sessionId}/pin`);
+  const res = await api.post(`/api/sessions/${sessionId}/pin`);
   return res.data;
 }
 
 export async function updateTagsApi(sessionId: string, tags: string[]) {
-  const res = await api.put(`/sessions/${sessionId}/tags`, { tags });
+  const res = await api.put(`/api/sessions/${sessionId}/tags`, { tags });
   return res.data;
 }
 
 export async function updateSessionModelModeApi(sessionId: string, mode?: string, model?: string) {
-  const res = await api.put(`/sessions/${sessionId}/model-mode`, { mode, model });
+  const res = await api.put(`/api/sessions/${sessionId}/model-mode`, { mode, model });
   return res.data;
 }

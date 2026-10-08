@@ -49,7 +49,7 @@ export async function deleteCollectionApi(id: string) {
 }
 
 export async function updateSessionCollectionsApi(sessionId: string, collectionIds: string[]) {
-  const res = await api.put(`/sessions/${sessionId}/collections`, { collectionIds });
+  const res = await api.put(`/api/sessions/${sessionId}/collections`, { collectionIds });
   return res.data;
 }
 

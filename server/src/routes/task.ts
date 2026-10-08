@@ -155,16 +155,26 @@ router.get('/:id/events', optionalAuth, async (req: AuthRequest, res: Response) 
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 
+  // 安全写入：响应已关闭/销毁时跳过，且吞掉写入异常，避免未捕获异常导致进程崩溃
+  const safeWrite = (chunk: string) => {
+    if (res.writableEnded || res.destroyed) return;
+    try {
+      res.write(chunk);
+    } catch {
+      /* 忽略已断开连接的写入错误 */
+    }
+  };
+
   const cursor = parseInt((req.query.cursor as string) || '0', 10) || 0;
 
   // 补发 cursor 之后的历史事件
   for (const ev of task.events) {
-    if (ev.seq > cursor) res.write(`data: ${JSON.stringify(ev)}\n\n`);
+    if (ev.seq > cursor) safeWrite(`data: ${JSON.stringify(ev)}\n\n`);
   }
 
   // 已结束的任务补发后直接告知结束
   if (['completed', 'failed', 'cancelled'].includes(task.status)) {
-    res.write(
+    safeWrite(
       `data: ${JSON.stringify({ seq: 999999, type: 'status', data: { status: task.status, final: true } })}\n\n`
     );
     res.end();
@@ -173,10 +183,15 @@ router.get('/:id/events', optionalAuth, async (req: AuthRequest, res: Response) 
 
   const onEvent = ({ taskId, event }: { taskId: string; event: any }) => {
     if (taskId !== task.id) return;
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    safeWrite(`data: ${JSON.stringify(event)}\n\n`);
   };
   taskManager.on('event', onEvent);
-  const keepAlive = setInterval(() => res.write(': ping\n\n'), 15000);
+  // 连接异常（如客户端断开）时移除监听，避免 socket error 冒泡成未捕获异常
+  res.on('error', () => {
+    taskManager.off('event', onEvent);
+    clearInterval(keepAlive);
+  });
+  const keepAlive = setInterval(() => safeWrite(': ping\n\n'), 15000);
 
   req.on('close', () => {
     taskManager.off('event', onEvent);

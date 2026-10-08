@@ -61,7 +61,12 @@ export class TaskManager extends EventEmitter {
   // 推送一个事件（写入内存并广播给 SSE 订阅者）
   emitEvent(id: string, type: string, data: any): TaskEvent {
     const ev = taskStore.appendEvent(id, { type, data });
-    this.emit('event', { taskId: id, event: ev });
+    // 监听器（SSE 订阅）若抛异常，吞掉以免冒泡成未捕获异常导致进程崩溃
+    try {
+      this.emit('event', { taskId: id, event: ev });
+    } catch (e) {
+      console.error('[TaskManager] 事件广播失败（已忽略，不影响任务）:', e);
+    }
     return ev;
   }
 

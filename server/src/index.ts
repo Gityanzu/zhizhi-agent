@@ -33,6 +33,14 @@ export { usePostgres } from './db';
 
 const app = express();
 
+// 全局兜底：避免未捕获异常/未处理的 Promise 拒绝直接杀死进程（导致后续请求全 500/连接拒绝）
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] unhandledRejection:', reason);
+});
+
 // 中间件
 // CORS 配置（限制来源）
 const allowedOrigins = [

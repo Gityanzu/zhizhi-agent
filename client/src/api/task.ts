@@ -130,15 +130,19 @@ export async function sendMessageViaTask(
 
   await subscribeTaskEvents(
     taskId,
-    (chunk) => {
-      onChunk({ ...chunk, taskId } as StreamChunk);
+    (envelope) => {
+      // 后端 SSE 格式：{ seq, ts, type, data }，其中 data 才是业务 chunk。
+      // 需要把外层 type 与内层 data 合并成一份 StreamChunk 再抛给 store。
+      const inner = (envelope.data || {}) as Partial<StreamChunk>;
+      const chunk = { type: envelope.type, ...inner, taskId } as StreamChunk;
+      onChunk(chunk);
       if (
-        chunk.type === 'status' &&
-        (chunk.data?.final || ['completed', 'failed', 'cancelled'].includes(chunk.data?.status))
+        envelope.type === 'status' &&
+        (inner.final || ['completed', 'failed', 'cancelled'].includes(inner.status as string))
       ) {
         internal.abort();
       }
-      if (chunk.type === 'done') {
+      if (envelope.type === 'done') {
         internal.abort();
       }
     },

@@ -63,7 +63,7 @@ interface UserRecord {
 /**
  * 自定义错误类
  */
-class CacheError extends Error {
+export class CacheError extends Error {
   constructor(
     public code: string,
     message: string,

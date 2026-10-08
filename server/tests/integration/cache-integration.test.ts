@@ -33,7 +33,8 @@ import {
   CacheError,
 } from '../../src/services/cache';
 
-describe('Redis Cache Service - 完整功能测试', () => {
+// 本文件依赖真实 Redis；未配置 Redis 时全部跳过（内存模式下 getCache 返回 null 属预期，见 unit/cache.test.ts）
+describe.skipIf(!isRedisAvailable())('Redis Cache Service - 完整功能测试', () => {
   
   // 测试前清理
   beforeEach(async () => {

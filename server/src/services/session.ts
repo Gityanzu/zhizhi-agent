@@ -158,21 +158,34 @@ export async function createSession(title?: string, mode?: string, model?: strin
 // 获取会话消息（可选按分支；不传则返回当前活动分支=最新分支）
 export async function getSessionMessages(sessionId: string, branchId?: string): Promise<ChatMessage[]> {
   if (usePostgres) {
-    let targetBranch = branchId;
-    if (!targetBranch) {
-      // 活动分支 = 最新一条消息所属的分支
+    // 'default' 或非 UUID 的 branchId 视为默认分支（对应库中 branch_id 为 NULL）
+    let targetBranch: string | null = null;
+    if (branchId && branchId !== 'default') {
+      targetBranch = isValidUuid(branchId) ? branchId : null;
+    }
+    if (!branchId) {
+      // 活动分支 = 最新一条消息所属的分支（NULL 即默认分支）
       const latest = await query(
         'SELECT branch_id FROM messages WHERE session_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1',
         [sessionId]
       );
       targetBranch = latest.rows[0]?.branch_id || null;
     }
-    if (!targetBranch) return [];
-    const result = await query(
-      `SELECT id, role, content, mode, created_at, tool_calls, sources, thinking, plan, agent_trace, token_usage, parent_id, branch_id
-       FROM messages WHERE session_id = $1 AND branch_id = $2 ORDER BY created_at ASC, id ASC`,
-      [sessionId, targetBranch]
-    );
+    let result;
+    if (targetBranch) {
+      result = await query(
+        `SELECT id, role, content, mode, created_at, tool_calls, sources, thinking, plan, agent_trace, token_usage, parent_id, branch_id
+         FROM messages WHERE session_id = $1 AND branch_id = $2 ORDER BY created_at ASC, id ASC`,
+        [sessionId, targetBranch]
+      );
+    } else {
+      // 默认分支：branch_id 为 NULL 的消息
+      result = await query(
+        `SELECT id, role, content, mode, created_at, tool_calls, sources, thinking, plan, agent_trace, token_usage, parent_id, branch_id
+         FROM messages WHERE session_id = $1 AND branch_id IS NULL ORDER BY created_at ASC, id ASC`,
+        [sessionId]
+      );
+    }
     return result.rows.map(mapMessageRow);
   } else {
     const session = sessions.get(sessionId);
@@ -347,7 +360,9 @@ export async function editMessage(messageId: string, content: string): Promise<b
 // 切换会话当前分支
 export async function switchBranch(sessionId: string, branchId: string): Promise<boolean> {
   if (usePostgres) {
-    await query('UPDATE sessions SET current_branch_id = $1 WHERE id = $2', [branchId, sessionId]);
+    // 'default' 对应默认分支（库中 current_branch_id 为 NULL）
+    const bid = branchId === 'default' ? null : safeUuid(branchId);
+    await query('UPDATE sessions SET current_branch_id = $1 WHERE id = $2', [bid, sessionId]);
     return true;
   } else {
     const session = sessions.get(sessionId);

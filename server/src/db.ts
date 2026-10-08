@@ -753,6 +753,13 @@ export async function initDatabase(): Promise<boolean> {
     await client.query(`COMMENT ON COLUMN sessions.user_id IS '会话归属用户 ID，用于多用户隔离'`);
     await client.query(`COMMENT ON COLUMN folders.user_id IS '文件夹归属用户 ID，用于多用户隔离'`);
 
+    // 多用户隔离：数据库连接 / 对外 API Key（均仅被路由使用，不涉及 agent 运行时/市场聚合，可安全按用户隔离）
+    // 存量无主数据 user_id 为 NULL，读取时对所有人可见（兼容旧数据），新建数据归属创建者。
+    await client.query(`ALTER TABLE db_connections ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE`);
+    await client.query(`ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_db_connections_user ON db_connections(user_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id)`);
+
     client.release();
     console.log('✅ PostgreSQL 数据库初始化完成');
     return true;

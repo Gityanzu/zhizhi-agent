@@ -20,6 +20,7 @@ export interface DBConnection {
   username: string;
   password: string; // 存储时加密，返回时不回传明文
   createdAt: string;
+  userId?: string | null; // 归属用户（存量无主为 null）
 }
 
 export interface TableSchema {
@@ -110,6 +111,7 @@ function mapRow(row: any): DBConnection {
     username: row.username,
     password: row.password || '', // 加密存储
     createdAt: row.created_at,
+    userId: row.user_id || null,
   };
 }
 
@@ -121,7 +123,7 @@ function toPublic(c: DBConnection) {
 
 // ==================== CRUD ====================
 
-export async function createConnection(data: Partial<DBConnection>): Promise<Omit<DBConnection, 'password'>> {
+export async function createConnection(data: Partial<DBConnection>, userId?: string | null): Promise<Omit<DBConnection, 'password'>> {
   const id = uuidv4();
   const now = new Date().toISOString();
   const conn: DBConnection = {
@@ -134,13 +136,14 @@ export async function createConnection(data: Partial<DBConnection>): Promise<Omi
     username: data.username || '',
     password: encrypt(data.password || ''),
     createdAt: now,
+    userId: userId || null,
   };
 
   if (usePostgres) {
     await query(
-      `INSERT INTO db_connections (id, name, type, host, port, database, username, password, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [id, conn.name, conn.type, conn.host, conn.port, conn.database, conn.username, conn.password, now]
+      `INSERT INTO db_connections (id, name, type, host, port, database, username, password, created_at, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [id, conn.name, conn.type, conn.host, conn.port, conn.database, conn.username, conn.password, now, userId || null]
     );
   } else {
     loadFromFile();
@@ -150,29 +153,39 @@ export async function createConnection(data: Partial<DBConnection>): Promise<Omi
   return toPublic(conn);
 }
 
-export async function getConnection(id: string): Promise<DBConnection | null> {
+export async function getConnection(id: string, userId?: string | null): Promise<DBConnection | null> {
   if (usePostgres) {
-    const result = await query('SELECT * FROM db_connections WHERE id = $1', [id]);
+    const result = userId
+      ? await query('SELECT * FROM db_connections WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)', [id, userId])
+      : await query('SELECT * FROM db_connections WHERE id = $1', [id]);
     if (result.rows.length === 0) return null;
     return mapRow(result.rows[0]);
   } else {
     loadFromFile();
-    return connsMap.get(id) || null;
+    const conn = connsMap.get(id) || null;
+    // 归属校验：有主且非本人 → 不可见
+    if (conn && userId && conn.userId && conn.userId !== userId) return null;
+    return conn;
   }
 }
 
-export async function getAllConnections(): Promise<Array<Omit<DBConnection, 'password'>>> {
+export async function getAllConnections(userId?: string | null): Promise<Array<Omit<DBConnection, 'password'>>> {
   if (usePostgres) {
-    const result = await query('SELECT * FROM db_connections ORDER BY created_at DESC');
+    const result = userId
+      ? await query('SELECT * FROM db_connections WHERE user_id = $1 OR user_id IS NULL ORDER BY created_at DESC', [userId])
+      : await query('SELECT * FROM db_connections ORDER BY created_at DESC');
     return result.rows.map(mapRow).map(toPublic);
   } else {
     loadFromFile();
-    return Array.from(connsMap.values()).map(toPublic);
+    return Array.from(connsMap.values())
+      // 存量无主对所有人可见；有主仅本人可见
+      .filter(c => !userId || !c.userId || c.userId === userId)
+      .map(toPublic);
   }
 }
 
-export async function updateConnection(id: string, data: Partial<DBConnection>): Promise<Omit<DBConnection, 'password'> | null> {
-  const existing = await getConnection(id);
+export async function updateConnection(id: string, data: Partial<DBConnection>, userId?: string | null): Promise<Omit<DBConnection, 'password'> | null> {
+  const existing = await getConnection(id, userId);
   if (!existing) return null;
 
   const updated: DBConnection = {
@@ -183,10 +196,16 @@ export async function updateConnection(id: string, data: Partial<DBConnection>):
   };
 
   if (usePostgres) {
-    await query(
-      `UPDATE db_connections SET name=$1, type=$2, host=$3, port=$4, database=$5, username=$6, password=$7 WHERE id=$8`,
-      [updated.name, updated.type, updated.host, updated.port, updated.database, updated.username, updated.password, id]
-    );
+    const res = userId
+      ? await query(
+          `UPDATE db_connections SET name=$1, type=$2, host=$3, port=$4, database=$5, username=$6, password=$7 WHERE id=$8 AND (user_id = $9 OR user_id IS NULL)`,
+          [updated.name, updated.type, updated.host, updated.port, updated.database, updated.username, updated.password, id, userId]
+        )
+      : await query(
+          `UPDATE db_connections SET name=$1, type=$2, host=$3, port=$4, database=$5, username=$6, password=$7 WHERE id=$8`,
+          [updated.name, updated.type, updated.host, updated.port, updated.database, updated.username, updated.password, id]
+        );
+    if ((res.rowCount || 0) === 0) return null;
   } else {
     loadFromFile();
     connsMap.set(id, updated);
@@ -195,15 +214,20 @@ export async function updateConnection(id: string, data: Partial<DBConnection>):
   return toPublic(updated);
 }
 
-export async function deleteConnection(id: string): Promise<boolean> {
+export async function deleteConnection(id: string, userId?: string | null): Promise<boolean> {
   if (usePostgres) {
-    const result = await query('DELETE FROM db_connections WHERE id = $1', [id]);
+    const result = userId
+      ? await query('DELETE FROM db_connections WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)', [id, userId])
+      : await query('DELETE FROM db_connections WHERE id = $1', [id]);
     return (result.rowCount || 0) > 0;
   } else {
     loadFromFile();
-    const result = connsMap.delete(id);
-    if (result) saveToFile();
-    return result;
+    const conn = connsMap.get(id);
+    if (!conn) return false;
+    if (userId && conn.userId && conn.userId !== userId) return false;
+    connsMap.delete(id);
+    saveToFile();
+    return true;
   }
 }
 
@@ -252,8 +276,8 @@ async function connectDB(conn: DBConnection): Promise<any> {
 }
 
 // 测试连接
-export async function testConnection(id: string): Promise<{ success: boolean; message: string }> {
-  const conn = await getConnection(id);
+export async function testConnection(id: string, userId?: string | null): Promise<{ success: boolean; message: string }> {
+  const conn = await getConnection(id, userId);
   if (!conn) return { success: false, message: '连接不存在' };
   let client: any = null;
   try {
@@ -276,8 +300,8 @@ export async function testConnection(id: string): Promise<{ success: boolean; me
 }
 
 // 获取表结构
-export async function getSchema(id: string): Promise<TableSchema[]> {
-  const conn = await getConnection(id);
+export async function getSchema(id: string, userId?: string | null): Promise<TableSchema[]> {
+  const conn = await getConnection(id, userId);
   if (!conn) throw new Error('连接不存在');
   const { kind, pool } = await connectDB(conn);
   try {
@@ -332,11 +356,11 @@ function isReadOnlySelect(sql: string): boolean {
 }
 
 // 执行只读 SQL
-export async function executeSQL(id: string, sql: string): Promise<QueryResult> {
+export async function executeSQL(id: string, sql: string, userId?: string | null): Promise<QueryResult> {
   if (!isReadOnlySelect(sql)) {
     throw new Error('只允许执行只读 SELECT 查询，禁止 INSERT/UPDATE/DELETE/DROP 等写操作。');
   }
-  const conn = await getConnection(id);
+  const conn = await getConnection(id, userId);
   if (!conn) throw new Error('连接不存在');
   const { kind, pool } = await connectDB(conn);
   try {
@@ -358,10 +382,10 @@ export async function executeSQL(id: string, sql: string): Promise<QueryResult> 
 }
 
 // 自然语言转 SQL
-export async function textToSQL(id: string, naturalLanguage: string): Promise<string> {
-  const conn = await getConnection(id);
+export async function textToSQL(id: string, naturalLanguage: string, userId?: string | null): Promise<string> {
+  const conn = await getConnection(id, userId);
   if (!conn) throw new Error('连接不存在');
-  const schemas = await getSchema(id);
+  const schemas = await getSchema(id, userId);
 
   const schemaText = schemas.map(t => {
     const cols = t.columns.map(c => `${c.name} ${c.type}`).join(', ');

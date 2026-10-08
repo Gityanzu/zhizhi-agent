@@ -12,6 +12,7 @@ export interface ApiKeyRecord {
   name: string;
   createdAt: string;
   lastUsedAt: string | null;
+  userId?: string | null;
 }
 
 const PERSIST_DIR = path.resolve(__dirname, '../../data');
@@ -64,7 +65,7 @@ export function generateKey(): string {
 }
 
 // 创建 API Key，返回完整 key（仅本次可见）
-export async function createApiKey(name: string): Promise<{ record: ApiKeyRecord; fullKey: string }> {
+export async function createApiKey(name: string, userId?: string | null): Promise<{ record: ApiKeyRecord; fullKey: string }> {
   const id = uuidv4();
   const fullKey = generateKey();
   const keyHash = hashKey(fullKey);
@@ -73,15 +74,15 @@ export async function createApiKey(name: string): Promise<{ record: ApiKeyRecord
 
   if (usePostgres) {
     await query(
-      'INSERT INTO api_keys (id, key_hash, key_prefix, name, created_at, last_used_at) VALUES ($1, $2, $3, $4, $5, NULL)',
-      [id, keyHash, keyPrefix, name, now]
+      'INSERT INTO api_keys (id, key_hash, key_prefix, name, created_at, last_used_at, user_id) VALUES ($1, $2, $3, $4, $5, NULL, $6)',
+      [id, keyHash, keyPrefix, name, now, userId || null]
     );
   } else {
-    store.set(id, { id, keyHash, keyPrefix, name, createdAt: now, lastUsedAt: null });
+    store.set(id, { id, keyHash, keyPrefix, name, createdAt: now, lastUsedAt: null, userId: userId || null });
     saveToFile();
   }
   return {
-    record: { id, keyPrefix, name, createdAt: now, lastUsedAt: null },
+    record: { id, keyPrefix, name, createdAt: now, lastUsedAt: null, userId: userId || null },
     fullKey,
   };
 }
@@ -119,11 +120,16 @@ export async function validateApiKey(key: string): Promise<ApiKeyRecord | null> 
   }
 }
 
-export async function listApiKeys(): Promise<ApiKeyRecord[]> {
+export async function listApiKeys(userId?: string | null): Promise<ApiKeyRecord[]> {
   if (usePostgres) {
-    const result = await query(
-      'SELECT id, key_prefix, name, created_at, last_used_at FROM api_keys ORDER BY created_at DESC'
-    );
+    const result = userId
+      ? await query(
+          'SELECT id, key_prefix, name, created_at, last_used_at FROM api_keys WHERE user_id = $1 OR user_id IS NULL ORDER BY created_at DESC',
+          [userId]
+        )
+      : await query(
+          'SELECT id, key_prefix, name, created_at, last_used_at FROM api_keys ORDER BY created_at DESC'
+        );
     return result.rows.map(r => ({
       id: r.id,
       keyPrefix: r.key_prefix,
@@ -133,6 +139,8 @@ export async function listApiKeys(): Promise<ApiKeyRecord[]> {
     }));
   } else {
     return Array.from(store.values())
+      // 存量无主（userId 为空）对所有人可见；有主仅本人可见
+      .filter(k => !userId || !k.userId || k.userId === userId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map(k => ({
         id: k.id,
@@ -144,13 +152,19 @@ export async function listApiKeys(): Promise<ApiKeyRecord[]> {
   }
 }
 
-export async function deleteApiKey(id: string): Promise<boolean> {
+export async function deleteApiKey(id: string, userId?: string | null): Promise<boolean> {
   if (usePostgres) {
-    const result = await query('DELETE FROM api_keys WHERE id = $1', [id]);
+    const result = userId
+      ? await query('DELETE FROM api_keys WHERE id = $1 AND (user_id = $2 OR user_id IS NULL)', [id, userId])
+      : await query('DELETE FROM api_keys WHERE id = $1', [id]);
     return (result.rowCount || 0) > 0;
   } else {
-    const existed = store.delete(id);
-    if (existed) saveToFile();
-    return existed;
+    const item = store.get(id);
+    if (!item) return false;
+    // 有主且非本人 → 拒绝
+    if (userId && item.userId && item.userId !== userId) return false;
+    store.delete(id);
+    saveToFile();
+    return true;
   }
 }

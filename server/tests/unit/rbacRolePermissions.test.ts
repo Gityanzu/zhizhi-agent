@@ -25,10 +25,8 @@ describe('角色权限清单', () => {
     expect(p).toContain('user:delete');
   });
 
-  // 已知缺陷：admin 的权限清单不是 user 的超集。
-  // admin 缺少 user 拥有的 'api:key:view'、'template:download'、'template:favorite'，
-  // 导致管理员在按权限判定的接口上反而被拒绝。
-  it.fails('admin 的权限应是 user 的超集', () => {
+  // 回归：admin 权限应为 user 的超集（此前 admin 缺 api:key:view/template:download/template:favorite）
+  it('admin 的权限应是 user 的超集', () => {
     const admin = new Set(getRolePermissions('admin'));
     const missing = getRolePermissions('user').filter((p) => !admin.has(p));
     expect(missing).toEqual([]);

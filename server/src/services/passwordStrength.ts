@@ -16,6 +16,22 @@ export interface PasswordStrengthScore {
 }
 
 /**
+ * 是否包含真正的连续字符序列：升/降序三位（abc / 123 / cba）或三位重复（aaa / 111）。
+ * 注意：不能用 /[a-z]{2,}/ —— 它会把"任意两个字母"误判为连续字符。
+ */
+function hasSequentialRun(password: string): boolean {
+  const s = password.toLowerCase();
+  for (let i = 0; i + 2 < s.length; i++) {
+    const a = s.charCodeAt(i);
+    const b = s.charCodeAt(i + 1);
+    const c = s.charCodeAt(i + 2);
+    if (b - a === 1 && c - b === 1) return true; // abc / 123 升序
+    if (a - b === 1 && b - c === 1) return true; // cba / 321 降序
+  }
+  return /(.)\1{2,}/.test(password); // aaa / 111 重复
+}
+
+/**
  * 验证密码强度
  * @param password - 要验证的密码
  * @returns 验证结果
@@ -76,9 +92,8 @@ export function validatePasswordStrength(password: string): PasswordValidationRe
     }
   }
 
-  // 检查连续字符（如 abc, 123, abc123）
-  const consecutiveChars = /[a-z]{2,}|[0-9]{2,}|[A-Z]{2,}/;
-  if (consecutiveChars.test(password)) {
+  // 检查连续字符（如 abc、123、abc123 等升/降序或重复序列）
+  if (hasSequentialRun(password)) {
     errors.push('避免使用连续字符');
     suggestions.push('打乱字符顺序以提高安全性');
   }
@@ -238,8 +253,9 @@ export function generatePasswordSuggestions(password: string): string[] {
  * @returns 是否足够安全
  */
 export function isPasswordSecure(password: string, minScore: number = 40): boolean {
-  const result = validatePasswordStrength(password);
-  const score = calculateStrengthScore(password);
+  // 必须同时满足：无硬性校验错误 且 分数达标
+  const strength = validatePasswordStrength(password);
+  if (!strength.valid) return false;
 
-  return score >= minScore;
+  return calculateStrengthScore(password) >= minScore;
 }

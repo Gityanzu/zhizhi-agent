@@ -23,10 +23,10 @@ const ROLE_PERMISSIONS: Record<Role, string[]> = {
     'user:create', 'user:update', 'user:delete', 'user:view',
     'agent:create', 'agent:update', 'agent:delete', 'agent:view',
     'template:create', 'template:update', 'template:delete', 'template:view',
-    'template:approve', 'template:reject',
+    'template:approve', 'template:reject', 'template:download', 'template:favorite',
     'system:config', 'system:monitor', 'system:backup',
     'analytics:view', 'analytics:export',
-    'api:key:create', 'api:key:delete',
+    'api:key:create', 'api:key:view', 'api:key:delete',
   ],
   user: [
     'user:view', 'user:update',

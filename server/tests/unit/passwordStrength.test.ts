@@ -45,11 +45,14 @@ describe('validatePasswordStrength', () => {
     expect(r.strength).toBe('strong');
   });
 
-  // 已知缺陷（附证据）：连续字符规则为 /[a-z]{2,}|[0-9]{2,}|[A-Z]{2,}/，
-  // 会把"任意两个连续的小写字母/数字/大写字母"判定为连续字符，
-  // 导致绝大多数正常密码（如 MyP@ssw0rd，含 "ss"）被判为无效。
-  it.fails('普通强度密码 MyP@ssw0rd 应为有效（当前被连续字符规则误判）', () => {
+  // 回归：连续字符规则已改为精确序列检测，普通密码不应被误判
+  it('普通强度密码 MyP@ssw0rd 应判为有效', () => {
     expect(validatePasswordStrength('MyP@ssw0rd').valid).toBe(true);
+  });
+
+  it('真正的连续序列（abc / 123）仍应被拒绝', () => {
+    expect(validatePasswordStrength('Abcd1!xy').errors).toContain('避免使用连续字符');
+    expect(validatePasswordStrength('Xy1!2345').errors).toContain('避免使用连续字符');
   });
 });
 
@@ -118,9 +121,8 @@ describe('isPasswordSecure', () => {
     expect(isPasswordSecure('Xk9$mQ2#vB7', score + 1)).toBe(false);
   });
 
-  // 已知缺陷：isPasswordSecure 计算了 validatePasswordStrength 却丢弃其 valid 结果，
-  // 仅按分数判断 → 含 "admin"/"123456" 等明确弱口令的高分密码会被误判为安全。
-  it.fails('包含 admin/123456 的密码不应判为安全（当前仅看分数而被误判）', () => {
+  // 回归：含明确弱口令的高分密码不应判为安全
+  it('包含 admin/123456 的密码不应判为安全', () => {
     expect(isPasswordSecure('Admin@123456', 40)).toBe(false);
   });
 });

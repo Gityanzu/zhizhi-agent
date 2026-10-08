@@ -212,10 +212,10 @@ npm run dev
 
 ### 对话接口
 ```
-POST /api/chat/send      - 非流式对话
-POST /api/chat/stream    - 流式对话（SSE）
+POST /api/chat/send      - 非流式对话（同步返回，无 HITL 审批）
 POST /api/chat/vision    - 图片理解（多模态）
 ```
+> 流式对话与文件操作审批、Plan 前置确认已统一到 **异步任务引擎** `/api/tasks`（见下），前端主聊天流与编辑重生成均经此接口。
 
 ### 模型接口
 ```
@@ -316,14 +316,20 @@ GET    /api/share/:id        - 获取分享内容
 ### 任务接口（异步任务引擎）
 将长任务提交到后台异步执行，前端通过 SSE 订阅进度，支持断线重连（?cursor=）与中途文件操作审批。
 ```
-POST   /api/tasks              - 创建任务（body: {sessionId?, message, mode?, agentId?, collectionIds?, enableThinking?}），立即返回 {taskId, sessionId}
+POST   /api/tasks              - 创建任务（body: {sessionId?, message, mode?, agentId?, collectionIds?, enableThinking?, parentId?, branchId?, isEdit?, editMessageId?, modelParams?}），立即返回 {taskId, sessionId}
 GET    /api/tasks              - 任务列表（query: sessionId?, status?）
 GET    /api/tasks/:id          - 任务详情（status/result/error/usage）
 GET    /api/tasks/:id/events   - SSE 订阅进度（?cursor= 断线重连补齐历史事件）
 POST   /api/tasks/:id/cancel   - 取消任务
-POST   /api/tasks/:id/approve  - 审批挂起的文件操作（body: {approved: boolean}）
+POST   /api/tasks/:id/approve  - 审批挂起的文件操作（body: {approved: boolean, remember?: boolean}；remember=true 记住本会话同类授权，后续不再弹窗）
+POST   /api/tasks/:id/plan-confirm - Plan 前置确认（body: {confirmed: boolean, feedback?: string}）
 ```
-事件类型（SSE data 为 `{seq, ts, type, data}`）：`token` / `tool_call` / `tool_result` / `plan_step` / `planning` / `agent_progress` / `agent_trace` / `approval_required` / `status`（status=completed|failed|cancelled 表示结束）。
+事件类型（SSE data 为 `{seq, ts, type, data}`）：`token` / `tool_call` / `tool_result` / `plan_step` / `planning` / `agent_progress` / `agent_trace` / `approval_required` / `plan_proposed` / `status`（status=completed|failed|cancelled 表示结束）。
+
+创建参数说明：
+- `parentId` / `branchId`：对话分支（消息编辑/重生成时挂到指定父消息与分支）
+- `isEdit` / `editMessageId`：编辑重生成模式（为 true 时不新增用户消息，历史截断到 editMessageId 为止）
+- `modelParams`：请求级模型参数覆盖（如 temperature、top_p 等）
 
 前端消费示例：
 ```js
@@ -357,9 +363,10 @@ zhizhi-agent/
 │   │   ├── config.ts               # 配置管理
 │   │   ├── db.ts                   # PostgreSQL 连接与初始化（16张表）
 │   │   ├── types/                  # 类型定义
-│   │   ├── routes/                 # API 路由（20个路由文件）
+│   │   ├── routes/                 # API 路由（31个路由文件，主要如下）
 │   │   │   ├── index.ts            # 路由统一出口
-│   │   │   ├── chat.ts             # 对话接口（含多模态图片理解）
+│   │   │   ├── chat.ts             # 对话接口（/send 非流式、/vision 多模态；流式与 HITL 已统一到 /api/tasks）
+│   │   │   ├── task.ts             # 异步任务引擎路由（/api/tasks：创建/进度订阅/取消/审批/Plan 前置确认）
 │   │   │   ├── model.ts            # 模型管理
 │   │   │   ├── document.ts         # 文档管理
 │   │   │   ├── session.ts          # 会话管理（含模型/模式绑定）
@@ -402,15 +409,18 @@ zhizhi-agent/
 │   │   │   ├── share.ts            # 对话分享
 │   │   │   ├── importData.ts       # 数据导入
 │   │   │   ├── apiKey.ts           # API Key 加密存储
-│   │   │   └── userSettings.ts     # 用户设置管理
+│   │   │   ├── userSettings.ts     # 用户设置管理
+│   │   │   ├── taskManager.ts      # 异步任务状态机（HITL 挂起/恢复、取消、SSE 事件分发）
+│   │   │   ├── taskRunner.ts       # 任务后台执行编排（agent/plan/multi；编辑/分支/模型参数）
+│   │   │   └── taskStore.ts        # 任务存储（内存为主，元数据持久化 data/tasks.json）
 │   │   ├── mcp/                    # MCP 协议
 │   │   │   └── server.ts           # MCP JSON-RPC 2.0 服务器
 │   │   └── skills/                 # Skill 系统
 │   │       └── index.ts            # 5 个内置 Skill 与管理器
-│   ├── tests/                      # 测试脚本（11个测试文件）
-│   │   ├── test_llm.js             # 大模型基础测试
-│   │   ├── test_token.js           # Token统计测试
-│   │   ├── test_vl.js              # 视觉理解测试
+│   ├── tests/                      # 测试（vitest 单测 + 集成测试，另有独立验证脚本）
+│   │   ├── unit/                   # 单元测试：taskManager(HITL状态机)、task(create 编辑/分支/鉴权)、history(编辑截断)、tokenManager、rbac、email、cache
+│   │   ├── integration/            # 集成测试：cache 等
+│   │   ├── test_*.js               # 独立验证脚本（LLM / baidu / token / thinking / vl / net）
 │   │   └── README.md               # 测试说明文档
 │   ├── logs/                       # 日志文件（git忽略）
 │   ├── agent_output/               # Agent 工作目录

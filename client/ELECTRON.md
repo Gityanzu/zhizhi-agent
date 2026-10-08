@@ -226,7 +226,7 @@ macOS 和 Linux 我**没有真机验证过**，配置是按文档写的。这个
 
 **问题**：生产环境如果用 `file://` 加载页面，前端里所有的相对路径请求都会失效
 （`axios` 的 `baseURL: '/'`、到处的 `/api/xxx`），而把它们改成绝对地址又会让 Web 端和桌面端代码分叉。
-而且 `/api/chat/stream` 是 SSE 流式接口，用自定义协议去代理流很别扭。
+而且任务引擎的 SSE 进度流（`/api/tasks/:id/events`）也要原样透传，用自定义协议去代理流很别扭。
 
 **解法**：主进程起一个本地 http 服务（只监听 `127.0.0.1`，端口传 0 让系统分配，避免占用冲突）：
 
@@ -339,7 +339,7 @@ patch 直接找不到锚点就抛异常 —— 连编译都没开始就挂了。
 
 前端里有几处是**直接拿绝对地址**发请求的，而不是走相对路径：
 
-- `src/api/chat.ts` → `${API_BASE_URL}/api/chat/stream`（SSE 流式接口）
+- `src/api/task.ts` → `${API_BASE_URL}/api/tasks/:id/events`（任务引擎 SSE 进度流）
 - `src/api/model.ts` → `${API_BASE_URL}/api/model/list`
 - `src/components/common/Sidebar.vue`、`src/components/settings/UserSettings.vue`
 

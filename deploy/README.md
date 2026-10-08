@@ -172,6 +172,6 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d
 - **`docker` 不是可识别的命令**：Docker Desktop 未安装或未启动，见第 0 节。
 - **compose 构建找不到 `server/`、`client/`**：build context 是仓库根，务必在**仓库根**执行 `-f deploy/docker-compose.yml`。
 - **前端起来了但接口 502**：`client` 的 nginx 反代 `http://server:3001`，确认 `server` 容器 healthy、compose 网络默认打通。
-- **SSE 流式对话卡住/不输出**：`nginx.conf` 已对 `/api/chat/stream` 关 `proxy_buffering`；若自建反代记得同样处理。
+- **SSE 进度流卡住/不输出**：`nginx.conf` 已对 `/api/tasks`（任务引擎 SSE 进度流 `/api/tasks/:id/events`）关 `proxy_buffering`；若自建反代记得同样处理。
 - **8080/8081 端口占用**：改 `WEB_PORT`（应用）或 Jenkins 启动 `--httpPort`。
 - **Jenkins 容器内没有 docker 权限**：练手期改用原生 Jenkins（见 2.2），避免挂载与权限坑。

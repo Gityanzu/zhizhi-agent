@@ -1,4 +1,4 @@
-// 编辑模式：历史截断到被编辑消息为止（与 chat/stream 行为一致）。
+// 编辑模式：历史截断到被编辑消息为止（与编辑重生成的截断语义一致）。
 // 抽为独立纯函数，便于单测且避免依赖任务编排的整张模块图。
 export function truncateHistoryForEdit(
   messages: { id?: string }[] = [],

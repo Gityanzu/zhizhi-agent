@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { taskManager } from '../services/taskManager';
 import { runTaskInBackground } from '../services/taskRunner';
 import { createSession, assertSessionOwner, addMessage } from '../services/session';
@@ -12,9 +12,19 @@ import { optionalAuth, AuthRequest } from '../middleware/auth';
 const router = Router();
 
 // 创建任务并后台执行（立即返回 taskId，不阻塞）
-router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
-  const r = await handleCreateTask(req.body, req.userId ?? null);
-  res.status(r.status).json(r.body);
+router.post('/', optionalAuth, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const r = await handleCreateTask(req.body, req.userId ?? null);
+    res.status(r.status).json(r.body);
+  } catch (error) {
+    console.error('[Task] 创建任务失败:', error);
+    const isDev = process.env.NODE_ENV !== 'production';
+    res.status(500).json({
+      error: '创建任务失败',
+      message: error instanceof Error ? error.message : String(error),
+      ...(isDev && error instanceof Error ? { stack: error.stack } : {}),
+    });
+  }
 });
 
 export interface CreateTaskBody {

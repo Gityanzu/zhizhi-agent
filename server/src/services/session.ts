@@ -75,6 +75,17 @@ loadFromFile();
 
 // ============ 工具函数 ============
 
+// 校验是否为合法 UUID（前端可能用 generateId() 生成非 UUID 的客户端 id，
+// 而数据库 parent_id / branch_id / user_id 为 UUID 列，写入非法值会报 22P02）。
+function isValidUuid(v: any): boolean {
+  return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+// 将可能是非法 UUID 的值安全地转成可写入 UUID 列的值（非法则 null）
+function safeUuid(v: any): string | null {
+  return isValidUuid(v) ? v : null;
+}
+
 // 将数据库行映射为 ChatMessage
 function mapMessageRow(row: any): ChatMessage {
   return {
@@ -134,7 +145,7 @@ export async function createSession(title?: string, mode?: string, model?: strin
   if (usePostgres) {
     await query(
       'INSERT INTO sessions (id, title, mode, model, created_at, updated_at, message_count, folder_id, is_pinned, tags, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-      [id, info.title, mode || 'agent', model || null, now, now, 0, null, false, '[]', userId || null]
+      [id, info.title, mode || 'agent', model || null, now, now, 0, null, false, '[]', safeUuid(userId)]
     );
   } else {
     sessions.set(id, { info, messages: [] });
@@ -250,8 +261,8 @@ export async function addMessage(
         extra?.plan ? JSON.stringify(extra.plan) : null,
         extra?.agentTrace ? JSON.stringify(extra.agentTrace) : null,
         extra?.tokenUsage ? JSON.stringify(extra.tokenUsage) : null,
-        extra?.parentId || null,
-        extra?.branchId || null,
+        safeUuid(extra?.parentId),
+        safeUuid(extra?.branchId),
       ]
     );
     // 更新会话的 message_count 和 updated_at

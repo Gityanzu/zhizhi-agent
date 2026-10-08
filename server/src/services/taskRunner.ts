@@ -73,6 +73,8 @@ async function* runQAStream(message: string, history: any[], enableThinking: boo
 
 // 后台执行任务：复用现有 service 层（agentRunStream / planRun / multiAgentRun / runQAStream）。
 // 不在本函数内 await 返回给调用方，由调用方 fire-and-forget；所有进度通过 taskManager 事件广播。
+import { truncateHistoryForEdit } from './history';
+
 export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
   const { taskId, sessionId, message, mode } = input;
   if (input.modelParams) setRequestParams(input.modelParams);
@@ -87,13 +89,7 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
 
   const isDesktop = config.isDesktop;
   const allMessages = await getSessionMessages(sessionId);
-  // 编辑模式：历史截断到被编辑消息为止（与 chat/stream 行为一致）
-  const history = input.isEdit && input.editMessageId
-    ? (() => {
-        const i = allMessages.findIndex((m: any) => m.id === input.editMessageId);
-        return i >= 0 ? allMessages.slice(0, i + 1) : allMessages;
-      })()
-    : allMessages;
+  const history = truncateHistoryForEdit(allMessages, input.isEdit ? input.editMessageId : undefined);
   const modelInfo = getCurrentModel();
 
   let customAgentConfig: CustomAgentConfig | undefined;

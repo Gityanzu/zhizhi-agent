@@ -17,7 +17,7 @@ interface PendingPlanConfirm {
 }
 
 // 任务管理器：状态机 + 事件分发（供 SSE 订阅）+ HITL 挂起/恢复 + 取消。
-class TaskManager extends EventEmitter {
+export class TaskManager extends EventEmitter {
   private pending = new Map<string, PendingApproval>();
   private pendingPlanConfirms = new Map<string, PendingPlanConfirm>();
   private rememberedApprovals = new Set<string>();

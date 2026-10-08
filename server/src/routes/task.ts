@@ -13,60 +13,79 @@ const router = Router();
 
 // 创建任务并后台执行（立即返回 taskId，不阻塞）
 router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
-  try {
-    const { sessionId, message, mode = 'agent', agentId, collectionIds, enableThinking, parentId, branchId, isEdit, editMessageId, modelParams } = req.body || {};
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: 'message 不能为空' });
-    }
-    let sid = sessionId;
-    if (!sid) {
-      sid = (await createSession(undefined, undefined, undefined, req.userId ?? null)).id;
-    } else if (!(await assertSessionOwner(sid, req.userId ?? null))) {
-      return res.status(403).json({ error: '无权访问该会话' });
-    }
+  const r = await handleCreateTask(req.body, req.userId ?? null);
+  res.status(r.status).json(r.body);
+});
 
-    // 写入用户消息（编辑模式不新增：消息已由 editMessageApi 更新）
-    let userMessageId: string | undefined;
-    if (!isEdit) {
-      userMessageId = await addMessage(sid, 'user', message, mode, {
-        parentId: typeof parentId === 'string' ? parentId : undefined,
-        branchId: typeof branchId === 'string' ? branchId : undefined,
-      });
-    }
+export interface CreateTaskBody {
+  sessionId?: string;
+  message: string;
+  mode?: string;
+  agentId?: string;
+  collectionIds?: string[];
+  enableThinking?: boolean;
+  parentId?: string;
+  branchId?: string;
+  isEdit?: boolean;
+  editMessageId?: string;
+  modelParams?: Record<string, number>;
+}
 
-    const task = taskManager.create({
-      sessionId: sid,
-      userId: req.userId ?? null,
-      mode,
-      prompt: message,
-    });
+// 创建任务的核心逻辑（抽离为纯函数便于单测；路由层仅做响应包装）。
+export async function handleCreateTask(
+  body: CreateTaskBody | undefined,
+  userId?: string | null
+): Promise<{ status: number; body: any }> {
+  const { sessionId, message, mode = 'agent', agentId, collectionIds, enableThinking, parentId, branchId, isEdit, editMessageId, modelParams } = body || {};
+  if (!message || typeof message !== 'string') {
+    return { status: 400, body: { error: 'message 不能为空' } };
+  }
+  let sid = sessionId;
+  if (!sid) {
+    sid = (await createSession(undefined, undefined, undefined, userId ?? null)).id;
+  } else if (!(await assertSessionOwner(sid, userId ?? null))) {
+    return { status: 403, body: { error: '无权访问该会话' } };
+  }
 
-    // 后台执行（fire-and-forget）
-    runTaskInBackground({
-      taskId: task.id,
-      sessionId: sid,
-      userId: req.userId ?? null,
-      message,
-      mode,
-      agentId,
-      collectionIds,
-      enableThinking,
+  // 写入用户消息（编辑模式不新增：消息已由 editMessageApi 更新）
+  let userMessageId: string | undefined;
+  if (!isEdit) {
+    userMessageId = await addMessage(sid, 'user', message, mode, {
       parentId: typeof parentId === 'string' ? parentId : undefined,
       branchId: typeof branchId === 'string' ? branchId : undefined,
-      isEdit: isEdit === true,
-      editMessageId: typeof editMessageId === 'string' ? editMessageId : undefined,
-      modelParams: modelParams && typeof modelParams === 'object' ? modelParams : undefined,
-      userMessageId,
-    }).catch((e) => {
-      console.error('[Task] 后台执行失败:', e);
-      taskManager.setError(task.id, e instanceof Error ? e.message : String(e));
     });
-
-    res.json({ taskId: task.id, sessionId: sid });
-  } catch (e) {
-    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
-});
+
+  const task = taskManager.create({
+    sessionId: sid,
+    userId: userId ?? null,
+    mode,
+    prompt: message,
+  });
+
+  // 后台执行（fire-and-forget）
+  runTaskInBackground({
+    taskId: task.id,
+    sessionId: sid,
+    userId: userId ?? null,
+    message,
+    mode,
+    agentId,
+    collectionIds,
+    enableThinking,
+    parentId: typeof parentId === 'string' ? parentId : undefined,
+    branchId: typeof branchId === 'string' ? branchId : undefined,
+    isEdit: isEdit === true,
+    editMessageId: typeof editMessageId === 'string' ? editMessageId : undefined,
+    modelParams: modelParams && typeof modelParams === 'object' ? modelParams : undefined,
+    userMessageId,
+  }).catch((e) => {
+    console.error('[Task] 后台执行失败:', e);
+    taskManager.setError(task.id, e instanceof Error ? e.message : String(e));
+  });
+
+  return { status: 200, body: { taskId: task.id, sessionId: sid } };
+}
 
 // 任务列表（默认按当前用户 userId 过滤；游客仅见自己创建的任务）
 router.get('/', optionalAuth, async (req: AuthRequest, res: Response) => {

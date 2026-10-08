@@ -5,7 +5,7 @@ import { generatePlanOnly, executePlan } from './plan';
 import { multiAgentRun } from './multiAgent';
 import { getSessionMessages, addMessage } from './session';
 import { recordUsage } from './usage';
-import { getCurrentModel, getLLM } from './llm';
+import { getCurrentModel, getLLM, setRequestParams } from './llm';
 import { getAgent } from './customAgent';
 import { getRelevantMemories } from './memory';
 import { getActiveTemplate } from './prompt';
@@ -20,6 +20,12 @@ export interface RunTaskInput {
   agentId?: string;
   collectionIds?: string[];
   enableThinking?: boolean;
+  parentId?: string;
+  branchId?: string;
+  modelParams?: Record<string, number>;
+  isEdit?: boolean;
+  editMessageId?: string;
+  userMessageId?: string;
 }
 
 // QA 流式（复制自 chat.ts simpleQAStream，避免 services 反向依赖 routes）
@@ -69,6 +75,7 @@ async function* runQAStream(message: string, history: any[], enableThinking: boo
 // 不在本函数内 await 返回给调用方，由调用方 fire-and-forget；所有进度通过 taskManager 事件广播。
 export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
   const { taskId, sessionId, message, mode } = input;
+  if (input.modelParams) setRequestParams(input.modelParams);
   taskManager.setStatus(taskId, 'running');
 
   // HITL 审批回调：挂起任务直到前端调 /api/tasks/:id/approve
@@ -79,7 +86,14 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
   };
 
   const isDesktop = config.isDesktop;
-  const history = (await getSessionMessages(sessionId)).slice(-20);
+  const allMessages = await getSessionMessages(sessionId);
+  // 编辑模式：历史截断到被编辑消息为止（与 chat/stream 行为一致）
+  const history = input.isEdit && input.editMessageId
+    ? (() => {
+        const i = allMessages.findIndex((m: any) => m.id === input.editMessageId);
+        return i >= 0 ? allMessages.slice(0, i + 1) : allMessages;
+      })()
+    : allMessages;
   const modelInfo = getCurrentModel();
 
   let customAgentConfig: CustomAgentConfig | undefined;
@@ -105,7 +119,7 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
         if (chunk.type === 'token') full += chunk.content;
         if (chunk.type === 'done') usage = chunk.tokenUsage;
       }
-      await addMessage(sessionId, 'assistant', full, 'qa', { tokenUsage: usage });
+      await addMessage(sessionId, 'assistant', full, 'qa', { tokenUsage: usage, branchId: input.branchId, parentId: input.userMessageId || input.editMessageId });
       if (usage)
         recordUsage(sessionId, undefined, modelInfo.name, usage.promptTokens, usage.completionTokens, usage.totalTokens).catch(() => {});
       taskManager.setResult(taskId, full, { tokenUsage: usage });
@@ -118,6 +132,8 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
         await addMessage(sessionId, 'assistant', '已取消执行计划。', 'plan', {
           plan: planSteps,
           tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+          branchId: input.branchId,
+          parentId: input.userMessageId || input.editMessageId,
         });
         taskManager.setStatus(taskId, 'completed', { plan: planSteps });
         return;
@@ -131,6 +147,8 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
       await addMessage(sessionId, 'assistant', exec.finalAnswer, 'plan', {
         plan: finalSteps,
         tokenUsage: exec.tokenUsage,
+        branchId: input.branchId,
+        parentId: input.userMessageId || input.editMessageId,
       });
       if (exec.tokenUsage)
         recordUsage(sessionId, undefined, modelInfo.name, exec.tokenUsage.promptTokens, exec.tokenUsage.completionTokens, exec.tokenUsage.totalTokens).catch(() => {});
@@ -148,6 +166,8 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
       await addMessage(sessionId, 'assistant', multiResult.answer, 'multi', {
         agentTrace: multiResult.agentTrace,
         tokenUsage: multiResult.tokenUsage,
+        branchId: input.branchId,
+        parentId: input.userMessageId || input.editMessageId,
       });
       if (multiResult.tokenUsage)
         recordUsage(sessionId, undefined, modelInfo.name, multiResult.tokenUsage.promptTokens, multiResult.tokenUsage.completionTokens, multiResult.tokenUsage.totalTokens).catch(() => {});
@@ -173,7 +193,7 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
         if (chunk.type === 'tool_call') toolCalls.push(chunk.toolCall);
         if (chunk.type === 'done' && chunk.tokenUsage) usage = chunk.tokenUsage;
       }
-      await addMessage(sessionId, 'assistant', full, 'agent', { toolCalls, tokenUsage: usage });
+      await addMessage(sessionId, 'assistant', full, 'agent', { toolCalls, tokenUsage: usage, branchId: input.branchId, parentId: input.userMessageId || input.editMessageId });
       if (usage)
         recordUsage(sessionId, undefined, modelInfo.name, usage.promptTokens, usage.completionTokens, usage.totalTokens).catch(() => {});
       if (taskManager.isCancelled(taskId)) {
@@ -188,5 +208,7 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
     } else {
       taskManager.setError(taskId, error instanceof Error ? error.message : String(error));
     }
+  } finally {
+    setRequestParams(null);
   }
 }

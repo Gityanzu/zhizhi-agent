@@ -1,7 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import { agentRunStream, agentRun, type CustomAgentConfig, type ApprovalRequest } from '../services/agent';
-import { ragQuery, ragQueryStream } from '../services/rag';
+import { agentRun } from '../services/agent';
 import { planRun, generatePlanOnly, executePlan } from '../services/plan';
 import { multiAgentRun } from '../services/multiAgent';
 import { getSessionMessages, addMessage, createSession, getSessionInfo, assertSessionOwner } from '../services/session';
@@ -14,38 +12,15 @@ import { recordUsage } from '../services/usage';
 import { SystemMessage, HumanMessage, AIMessage } from '@langchain/core/messages';
 import { ChatOpenAI } from '@langchain/openai';
 import type { ChatMessage } from '../types';
-import { getAgent } from '../services/customAgent';
 import { optionalAuth, AuthRequest } from '../middleware/auth';
 import { getDefaultApiKey } from '../services/userApiKey';
-import { config } from '../config';
-
-// ===== 桌面端文件审批（内联对话卡）跨请求状态 =====
-// /stream 下发 approval_required 后阻塞等待；前端用户点击调 /stream/approve 解析对应 Promise。
-const pendingApprovals = new Map<string, { resolve: (v: boolean) => void; timer: ReturnType<typeof setTimeout>; kind: string; sessionId?: string }>();
-// “本次会话始终允许”：按 `${sessionId}:${kind}` 记住，内存态，重启即失效。
-const rememberedApprovals = new Set<string>();
-// Plan 模式前置确认：后端生成计划后下发 plan_proposed 事件并阻塞，等待前端 /stream/plan-confirm 回调。
-const pendingPlanConfirms = new Map<string, { resolve: (d: { confirmed: boolean; feedback?: string }) => void; timer: ReturnType<typeof setTimeout>; sessionId?: string }>();
-const PLAN_CONFIRM_TIMEOUT_MS = 10 * 60 * 1000; // 10 分钟
-function waitPlanConfirm(requestId: string, sid: string): Promise<{ confirmed: boolean; feedback?: string }> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      pendingPlanConfirms.delete(requestId);
-      resolve({ confirmed: false });
-    }, PLAN_CONFIRM_TIMEOUT_MS);
-    pendingPlanConfirms.set(requestId, { resolve, timer, sessionId: sid });
-  });
-}
-const APPROVAL_TIMEOUT_MS = 120000;
-
-const router = Router();
 
 // 辅助函数：设置请求级用户API Key
 async function setupUserApiKey(req: AuthRequest): Promise<void> {
   if (req.userId) {
     const userKey = await getDefaultApiKey(req.userId);
     if (userKey) {
-      setRequestUserApiKey({ apiKey: userKey.api_key, baseUrl: userKey.base_url || undefined });
+      setRequestUserApiKey({ apiKey: userKey.api_key, base_url: userKey.base_url || undefined });
     }
   }
 }
@@ -69,12 +44,12 @@ const CONTEXT_KEEP_RECENT = 6; // 保留最近6条消息
 async function compressHistory(history: Array<{ role: string; content: string }>): Promise<string> {
   const llm = getLLM();
   const historyText = history.map(m => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`).join('\n');
-  
+
   const messages = [
     new SystemMessage('你是一个对话摘要助手。请将以下对话历史压缩成一段简洁的摘要，保留关键信息、用户需求、已完成的任务和重要结论。摘要不超过200字。'),
     new HumanMessage(`请压缩以下对话历史：\n\n${historyText}`),
   ];
-  
+
   try {
     const response = await llm.invoke(messages);
     return typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
@@ -89,21 +64,21 @@ async function getCompressedHistory(
   sessionId: string
 ): Promise<{ history: ChatMessage[]; compressed: boolean }> {
   const allMessages = await getSessionMessages(sessionId);
-  
+
   // 消息数量未超过阈值，直接返回
   if (allMessages.length <= CONTEXT_COMPRESS_THRESHOLD) {
     return { history: allMessages, compressed: false };
   }
-  
+
   // 超过阈值，压缩旧消息
   const splitIndex = allMessages.length - CONTEXT_KEEP_RECENT;
   const oldMessages = allMessages.slice(0, splitIndex);
   const recentMessages = allMessages.slice(splitIndex);
-  
+
   console.log(`[上下文压缩] 会话 ${sessionId}: ${allMessages.length}条消息，压缩前${oldMessages.length}条，保留最近${recentMessages.length}条`);
-  
+
   const summary = await compressHistory(oldMessages);
-  
+
   if (summary) {
     const compressedHistory = [
       { role: 'system' as const, content: `【对话历史摘要】${summary}` },
@@ -111,35 +86,35 @@ async function getCompressedHistory(
     ];
     return { history: compressedHistory, compressed: true };
   }
-  
+
   // 压缩失败，返回最近的消息
   return { history: recentMessages, compressed: false };
 }
 
 // 纯智能问答（不使用工具，不检索）
 async function simpleQA(
-  message: string, 
+  message: string,
   history: any[],
   enableThinking: boolean = false
-): Promise<{ 
-  answer: string; 
-  steps: any[]; 
+): Promise<{
+  answer: string;
+  steps: any[];
   sources: any[];
   tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
   thinking?: string;
 }> {
   const llm = getLLM();
-  
+
   // 获取相关记忆
   const memories = await getRelevantMemories(5);
-  const memoryContext = memories.length > 0 
+  const memoryContext = memories.length > 0
     ? `\n\n【用户记忆】\n${memories.map((m, i) => `${i + 1}. ${m}`).join('\n')}`
     : '';
-  
+
   // 获取激活的提示词模板
   const activeTemplate = await getActiveTemplate();
   const basePrompt = activeTemplate?.content || '你是智知，一个专业的企业知识库智能问答助手。请直接回答用户的问题，回答要简洁、准确、有帮助。';
-  
+
   let systemPrompt = `${basePrompt}${memoryContext}`;
   if (enableThinking) {
     systemPrompt = `${basePrompt}
@@ -150,18 +125,18 @@ async function simpleQA(
 </think>
 这里写最终答案...${memoryContext}`;
   }
-  
+
   const messages = [
     new SystemMessage(systemPrompt),
-    ...history.slice(-6).map((m: any) => 
+    ...history.slice(-6).map((m: any) =>
       m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
     ),
     new HumanMessage(message),
   ];
-  
+
   const response = await llm.invoke(messages);
   let answer = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-  
+
   // 解析思考内容
   let thinking: string | undefined;
   if (enableThinking) {
@@ -169,21 +144,21 @@ async function simpleQA(
     thinking = result.thinking;
     answer = result.answer;
   }
-  
+
   // 从 LangChain 响应中提取 token 用量（兼容多种属性路径，通义千问用 estimatedTokenUsage）
   const respAny = response as any;
   const rm = respAny?.response_metadata || {};
-  const usage = rm.tokenUsage 
-    || rm.estimatedTokenUsage 
-    || respAny?.responseMetadata?.tokenUsage 
+  const usage = rm.tokenUsage
+    || rm.estimatedTokenUsage
+    || respAny?.responseMetadata?.tokenUsage
     || respAny?.responseMetadata?.estimatedTokenUsage
     || respAny?.kwargs?.response_metadata?.tokenUsage
     || respAny?.kwargs?.response_metadata?.estimatedTokenUsage
-    || respAny?.usage 
+    || respAny?.usage
     || {};
   const promptTokens = usage.promptTokens || usage.prompt_tokens || 0;
   const completionTokens = usage.completionTokens || usage.completion_tokens || 0;
-  
+
   return {
     answer,
     steps: [{ type: 'qa', content: '智能问答模式：直接生成回答' }],
@@ -193,99 +168,9 @@ async function simpleQA(
   };
 }
 
-// 流式智能问答（真流式输出）
-async function* simpleQAStream(
-  message: string,
-  history: any[],
-  enableThinking: boolean = false
-): AsyncGenerator<{ type: string; content?: string; thinking?: string; tokenUsage?: any }> {
-  const llm = getLLM();
-  
-  // 获取相关记忆
-  const memories = await getRelevantMemories(5);
-  const memoryContext = memories.length > 0 
-    ? `\n\n【用户记忆】\n${memories.map((m, i) => `${i + 1}. ${m}`).join('\n')}`
-    : '';
-  
-  // 获取激活的提示词模板
-  const activeTemplate = await getActiveTemplate();
-  const basePrompt = activeTemplate?.content || '你是智知，一个专业的企业知识库智能问答助手。请直接回答用户的问题，回答要简洁、准确、有帮助。';
-  
-  let systemPrompt = `${basePrompt}${memoryContext}`;
-  if (enableThinking) {
-    systemPrompt = `${basePrompt}
-在回答用户问题之前，请先在 <think> 标签中写出你的思考过程（分析问题、推理步骤、计算过程等），然后再给出最终答案。
-格式要求：
-<think>
-这里写思考过程...
-</think>
-这里写最终答案...${memoryContext}`;
-  }
-  
-  const messages = [
-    new SystemMessage(systemPrompt),
-    ...history.slice(-6).map((m: any) => 
-      m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
-    ),
-    new HumanMessage(message),
-  ];
-  
-  try {
-    // 使用真流式输出
-    const stream = await llm.stream(messages);
-    let fullContent = '';
-    let lastChunk: any = null;
-    
-    for await (const chunk of stream) {
-      lastChunk = chunk;
-      const content = typeof chunk.content === 'string' ? chunk.content : '';
-      if (content) {
-        fullContent += content;
-        yield { type: 'token', content };
-      }
-    }
-    
-    // 解析思考内容
-    let thinking: string | undefined;
-    let answer = fullContent;
-    if (enableThinking) {
-      const result = extractThinking(fullContent);
-      thinking = result.thinking;
-      answer = result.answer;
-    }
-    
-    // 提取 token 用量
-    const respAny = lastChunk as any;
-    const rm = respAny?.response_metadata || {};
-    const usage = rm.tokenUsage 
-      || rm.estimatedTokenUsage 
-      || respAny?.responseMetadata?.tokenUsage 
-      || respAny?.responseMetadata?.estimatedTokenUsage
-      || respAny?.kwargs?.response_metadata?.tokenUsage
-      || respAny?.kwargs?.response_metadata?.estimatedTokenUsage
-      || respAny?.usage 
-      || {};
-    const promptTokens = usage.promptTokens || usage.prompt_tokens || 0;
-    const completionTokens = usage.completionTokens || usage.completion_tokens || 0;
-    
-    if (thinking) {
-      yield { type: 'thinking', thinking };
-    }
-    yield { 
-      type: 'done', 
-      tokenUsage: { promptTokens, completionTokens, totalTokens: promptTokens + completionTokens } 
-    };
-  } catch (error) {
-    console.error('QA流式生成失败:', error);
-    yield { 
-      type: 'error', 
-      content: error instanceof Error ? error.message : String(error) 
-    };
-    yield { type: 'done', tokenUsage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 } };
-  }
-}
+const router = Router();
 
-// 非流式对话
+// 非流式对话（同步返回，无 HITL 审批；审批/Plan 前置确认统一走 /api/tasks 任务引擎）
 router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { message, sessionId, mode, useAgent, enableThinking, modelParams } = req.body;
@@ -326,10 +211,10 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
 
     // 添加用户消息
     const userMessageId = await addMessage(sid, 'user', message, actualMode);
-    
+
     let result;
     const modelInfo = getCurrentModel();
-    
+
     if (actualMode === 'qa') {
       result = await simpleQA(message, history, enableThinking || false);
     } else if (actualMode === 'agent') {
@@ -356,7 +241,7 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
         tokenUsage: planResult.tokenUsage,
       };
     }
-    
+
     // 添加助手回复（含复杂字段）
     const assistantMessageId = await addMessage(sid, 'assistant', result.answer, actualMode, {
       toolCalls: (result as any).steps?.filter((s: any) => s.type === 'tool_call').map((s: any) => s.toolCall) || [],
@@ -366,7 +251,7 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
       agentTrace: (result as any).agentTrace,
       tokenUsage: (result as any).tokenUsage,
     });
-    
+
     // 记录 Token 用量
     const tokenUsage = (result as any).tokenUsage || { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     await recordUsage(
@@ -393,7 +278,7 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
       thinking: (result as any).thinking || null,
       contextCompressed: compressed,
     });
-    
+
     // 异步提取记忆（每5条消息提取一次，不阻塞响应）
     const sessionInfo = await getSessionInfo(sid);
     const msgCount = sessionInfo?.messageCount || 0;
@@ -408,387 +293,37 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
     setRequestParams(null);
     setRequestModelOverride(null);
     const isProd = process.env.NODE_ENV === 'production';
-    res.status(500).json({ 
+    res.status(500).json({
       error: '对话处理失败',
       ...(!isProd && { detail: error instanceof Error ? error.message : String(error) }),
     });
   }
 });
 
-// 流式对话（SSE）
-router.post('/stream', optionalAuth, async (req: AuthRequest, res: Response) => {
-  try {
-    const {
-      message,
-      sessionId,
-      mode,
-      useAgent,
-      enableThinking: thinkingEnabled,
-      parentId,
-      branchId: clientBranchId,
-      modelParams,
-      isEdit,
-      editMessageId,
-      agentId,
-      collectionIds,
-      providerId,
-      model: modelOverride,
-    } = req.body;
-
-    if (!message) {
-      return res.status(400).json({ error: '消息内容不能为空' });
-    }
-
-    // 设置用户API Key（如果已登录且配置了）
-    await setupUserApiKey(req);
-
-    if (!isLLMConfigured() && !req.userId) {
-      return res.status(500).json({ error: 'LLM API Key 未配置，请设置全局API Key或登录后配置个人API Key' });
-    }
-
-    // 应用本次请求的模型参数覆盖（影响内部所有 getLLM() 调用）
-    setRequestParams((modelParams as ModelParams) || null);
-    // 功能10：按请求切换 provider / 模型（不传则使用当前默认百炼）
-    setRequestModelOverride(providerId || modelOverride ? { providerId, modelName: modelOverride } : null);
-
-    let actualMode = mode || (useAgent ? 'agent' : 'qa');
-    if (!['qa', 'agent', 'plan', 'multi'].includes(actualMode)) {
-      actualMode = 'agent';
-    }
-
-    const modelInfo = getCurrentModel();
-    const enableThinking = thinkingEnabled || false;
-
-    // 设置 SSE 响应头
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-
-    // 获取或创建会话（按用户隔离：复用他人会话直接拒绝）
-    let sid: string;
-    if (sessionId) {
-      if (!(await assertSessionOwner(sessionId, req.userId ?? null))) {
-        res.write(`data: ${JSON.stringify({ type: 'error', content: '无权访问该会话' })}\n\n`);
-        res.end();
-        return;
-      }
-      sid = sessionId;
-    } else {
-      sid = (await createSession(undefined, undefined, undefined, req.userId ?? null)).id;
-    }
-
-    // 分支标识：优先使用前端传入，否则生成新分支
-    const branchId: string = clientBranchId || uuidv4();
-
-    let history: ChatMessage[];
-    let userMessageId: string | undefined;
-
-    if (isEdit && editMessageId) {
-      // 编辑模式：不新增用户消息，历史截断到被编辑消息为止
-      const branchMessages = await getSessionMessages(sid);
-      const editIndex = branchMessages.findIndex(m => m.id === editMessageId);
-      history = editIndex >= 0 ? branchMessages.slice(0, editIndex + 1) : branchMessages;
-      userMessageId = editMessageId;
-    } else {
-      // 普通模式：获取当前活动分支历史，并写入用户消息
-      history = await getSessionMessages(sid);
-      userMessageId = await addMessage(sid, 'user', message, actualMode, {
-        parentId: parentId || undefined,
-        branchId,
-      });
-    }
-
-    // 发送会话ID、模式、分支信息
-    res.write(`data: ${JSON.stringify({ type: 'session_id', content: sid, mode: actualMode, branch_id: branchId, user_message_id: userMessageId })}\n\n`);
-    
-    if (actualMode === 'plan') {
-      // Plan 模式：先生成计划并请求用户确认（前置确认），确认后再执行。
-      const planSteps = await generatePlanOnly(message, history);
-      const planRequestId = uuidv4();
-      res.write(`data: ${JSON.stringify({ type: 'plan_proposed', requestId: planRequestId, plan: planSteps })}\n\n`);
-
-      // 阻塞等待用户确认（类似文件审批的挂起机制）
-      const decision = await waitPlanConfirm(planRequestId, sid);
-      if (!decision.confirmed) {
-        res.write(`data: ${JSON.stringify({ type: 'done', content: '已取消执行计划。' })}\n\n`);
-        await addMessage(sid, 'assistant', '已取消执行计划。', 'plan', {
-          plan: planSteps,
-          parentId: userMessageId,
-          branchId,
-        });
-        setRequestParams(null);
-        setRequestModelOverride(null);
-        res.end();
-        return;
-      }
-
-      // 用户确认：若附加了约束，追加为最后一步
-      const finalSteps = decision.feedback
-        ? [...planSteps, { id: planSteps.length + 1, title: '附加约束', description: decision.feedback, status: 'pending' as const }]
-        : planSteps;
-
-      const exec = await executePlan(finalSteps, message, history);
-      for (const s of exec.steps) {
-        res.write(`data: ${JSON.stringify(s)}\n\n`);
-      }
-
-      // 模拟流式输出最终回答
-      const answer = exec.finalAnswer;
-      const chunks = answer.match(/.{1,5}/g) || [answer];
-      for (const chunk of chunks) {
-        res.write(`data: ${JSON.stringify({ type: 'token', content: chunk, sources: [] })}\n\n`);
-        await new Promise(r => setTimeout(r, 20));
-      }
-
-      res.write(`data: ${JSON.stringify({ type: 'done', content: '', plan: finalSteps, tokenUsage: exec.tokenUsage })}\n\n`);
-      await addMessage(sid, 'assistant', answer, 'plan', {
-        plan: finalSteps,
-        tokenUsage: exec.tokenUsage,
-        parentId: userMessageId,
-        branchId,
-      });
-      setRequestParams(null);
-      setRequestModelOverride(null);
-      res.end();
-      return;
-    }
-    
-    if (actualMode === 'multi') {
-      // 多Agent模式：实时输出执行进度
-      res.write(`data: ${JSON.stringify({ type: 'planning', content: '多Agent协作开始...' })}\n\n`);
-      
-      const multiResult = await multiAgentRun(message, history, (trace) => {
-        // 实时输出每个 Agent 的执行进度
-        res.write(`data: ${JSON.stringify({ type: 'agent_progress', agent: trace.agent, action: trace.action, content: trace.content })}\n\n`);
-      });
-      
-      // 输出完整轨迹（供前端展示）
-      res.write(`data: ${JSON.stringify({ type: 'agent_trace', agentTrace: multiResult.agentTrace })}\n\n`);
-      
-      // 模拟流式输出最终回答
-      const answer = multiResult.answer;
-      const chunks = answer.match(/.{1,3}/g) || [answer];
-      for (const chunk of chunks) {
-        res.write(`data: ${JSON.stringify({ type: 'token', content: chunk, sources: [] })}\n\n`);
-        await new Promise(r => setTimeout(r, 20));
-      }
-      
-      res.write(`data: ${JSON.stringify({ type: 'done', content: '', agentTrace: multiResult.agentTrace, tokenUsage: multiResult.tokenUsage })}\n\n`);
-      await addMessage(sid, 'assistant', answer, 'multi', {
-        agentTrace: multiResult.agentTrace,
-        tokenUsage: multiResult.tokenUsage,
-        parentId: userMessageId,
-        branchId,
-      });
-      
-      // 记录 Token 用量
-      if (multiResult.tokenUsage) {
-        recordUsage(sid, undefined, modelInfo.name, multiResult.tokenUsage.promptTokens, multiResult.tokenUsage.completionTokens, multiResult.tokenUsage.totalTokens).catch(() => {});
-      }
-      
-      setRequestParams(null);
-    setRequestModelOverride(null);
-      setRequestModelOverride(null);
-      res.end();
-      return;
-    }
-    
-    if (actualMode === 'qa') {
-      // QA模式：真流式输出
-      res.write(`data: ${JSON.stringify({ type: 'qa', content: '智能问答模式' })}\n\n`);
-      
-      const qaStream = simpleQAStream(message, history, enableThinking || false);
-      let fullAnswer = '';
-      let qaThinking: string | undefined;
-      let qaTokenUsage: any = null;
-      
-      for await (const chunk of qaStream) {
-        if (chunk.type === 'token') {
-          fullAnswer += chunk.content || '';
-        }
-        if (chunk.type === 'thinking') {
-          qaThinking = chunk.thinking;
-        }
-        if (chunk.type === 'done') {
-          qaTokenUsage = chunk.tokenUsage;
-        }
-        res.write(`data: ${JSON.stringify({ ...chunk, sources: [] })}\n\n`);
-      }
-      
-      await addMessage(sid, 'assistant', fullAnswer, 'qa', {
-        thinking: qaThinking,
-        sources: [],
-        tokenUsage: qaTokenUsage,
-        parentId: userMessageId,
-        branchId,
-      });
-      
-      // 记录 Token 用量
-      if (qaTokenUsage) {
-        recordUsage(sid, undefined, modelInfo.name, qaTokenUsage.promptTokens, qaTokenUsage.completionTokens, qaTokenUsage.totalTokens).catch(() => {});
-      }
-      
-      setRequestParams(null);
-    setRequestModelOverride(null);
-      setRequestModelOverride(null);
-      res.end();
-      return;
-    }
-    
-    // Agent模式：使用原有流式
-    // 加载自定义Agent配置（如果指定了agentId）
-    let customAgentConfig: CustomAgentConfig | undefined;
-    if (agentId) {
-      const customAgent = await getAgent(agentId);
-      if (customAgent) {
-        customAgentConfig = {
-          systemPrompt: customAgent.systemPrompt,
-          tools: customAgent.tools,
-          model: customAgent.model || undefined,
-          temperature: customAgent.temperature,
-        };
-      }
-    }
-    // 桌面端文件审批回调：命中"本次会话始终允许"直接放行；否则下发 approval_required 并阻塞等待。
-    const isDesktop = config.isDesktop;
-    const requestApproval = (areq: ApprovalRequest): Promise<boolean> => {
-      if (rememberedApprovals.has(`${sid}:${areq.kind}`)) return Promise.resolve(true);
-      return new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => {
-          pendingApprovals.delete(areq.requestId);
-          resolve(false);
-        }, APPROVAL_TIMEOUT_MS);
-        pendingApprovals.set(areq.requestId, { resolve, timer, kind: areq.kind, sessionId: sid });
-        res.write(`data: ${JSON.stringify({ type: 'approval_required', ...areq })}\n\n`);
-      });
-    };
-
-    // 客户端断开时清理未决审批，避免 Promise/定时器泄漏
-    req.on('close', () => {
-      for (const [id, p] of pendingApprovals.entries()) {
-        if (p.sessionId === sid) {
-          clearTimeout(p.timer);
-          pendingApprovals.delete(id);
-          p.resolve(false);
-        }
-      }
-      for (const [id, p] of pendingPlanConfirms.entries()) {
-        if (p.sessionId === sid) {
-          clearTimeout(p.timer);
-          pendingPlanConfirms.delete(id);
-          p.resolve({ confirmed: false });
-        }
-      }
-    });
-
-    const stream = agentRunStream(message, history, customAgentConfig, {
-      collectionIds: Array.isArray(collectionIds) ? collectionIds : undefined,
-      isDesktop,
-      sessionId: sid,
-      requestApproval,
-    });
-    
-    let fullAnswer = '';
-    let agentTokenUsage: any = null;
-    const agentToolCalls: any[] = [];
-    
-    for await (const chunk of stream) {
-      if (chunk.type === 'token') {
-        fullAnswer += chunk.content;
-      }
-      if (chunk.type === 'tool_call') {
-        agentToolCalls.push(chunk.toolCall);
-      }
-      if (chunk.type === 'done' && chunk.tokenUsage) {
-        agentTokenUsage = chunk.tokenUsage;
-      }
-      res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-    }
-    
-    await addMessage(sid, 'assistant', fullAnswer, 'agent', {
-      toolCalls: agentToolCalls,
-      tokenUsage: agentTokenUsage,
-      parentId: userMessageId,
-      branchId,
-    });
-    
-    // 记录 Token 用量
-    if (agentTokenUsage) {
-      recordUsage(sid, undefined, modelInfo.name, agentTokenUsage.promptTokens, agentTokenUsage.completionTokens, agentTokenUsage.totalTokens).catch(() => {});
-    }
-    
-    setRequestParams(null);
-    setRequestModelOverride(null);
-    res.end();
-  } catch (error) {
-    console.error('流式对话失败:', error);
-    setRequestParams(null);
-    setRequestModelOverride(null);
-    res.write(`data: ${JSON.stringify({ type: 'error', content: error instanceof Error ? error.message : String(error) })}\n\n`);
-    res.end();
-  }
-});
-
-// 文件审批响应（桌面端）：前端用户点击 允许/拒绝/本次会话始终允许 后回调，解析对应 Promise。
-// requestId 为不可猜的 UUID，足以防跨请求误触；无需额外鉴权。
-router.post('/stream/approve', async (req: Request, res: Response) => {
-  const { requestId, approved, remember } = req.body || {};
-  if (!requestId || typeof requestId !== 'string') {
-    return res.status(400).json({ error: 'requestId 不能为空' });
-  }
-  const pending = pendingApprovals.get(requestId);
-  if (!pending) {
-    return res.status(404).json({ error: '审批请求不存在或已超时' });
-  }
-  clearTimeout(pending.timer);
-  pendingApprovals.delete(requestId);
-  if (approved && remember && pending.sessionId) {
-    rememberedApprovals.add(`${pending.sessionId}:${pending.kind}`);
-  }
-  pending.resolve(!!approved);
-  res.json({ ok: true });
-});
-
-// Plan 模式前置确认响应：用户点击"确认执行/修改后执行"后回调，解析后端阻塞的 Promise。
-router.post('/stream/plan-confirm', async (req: Request, res: Response) => {
-  const { requestId, confirmed, feedback } = req.body || {};
-  if (!requestId || typeof requestId !== 'string') {
-    return res.status(400).json({ error: 'requestId 不能为空' });
-  }
-  const pending = pendingPlanConfirms.get(requestId);
-  if (!pending) {
-    return res.status(404).json({ error: '计划确认请求不存在或已超时' });
-  }
-  clearTimeout(pending.timer);
-  pendingPlanConfirms.delete(requestId);
-  pending.resolve({ confirmed: !!confirmed, feedback: typeof feedback === 'string' ? feedback : undefined });
-  res.json({ ok: true });
-});
-
 // 图片理解接口（多模态，使用 qwen3.5-ocr 模型）
-router.post('/vision', optionalAuth, async (req: AuthRequest, res: Response) => {
+router.post('/vision', optionalAuth, async (req: Request, res: Response) => {
   try {
     const { image, question, sessionId } = req.body;
-    
+
     if (!image) {
       return res.status(400).json({ error: '图片数据不能为空' });
     }
-    
+
     // 图片大小限制（5MB）
     const base64Data = image.includes(',') ? image.split(',')[1] : image;
     const sizeKB = (base64Data.length * 0.75) / 1024;
     if (sizeKB > 5120) {
       return res.status(400).json({ error: '图片大小不能超过5MB' });
     }
-    
-    // 设置用户API Key（如果已登录且配置了）
-    await setupUserApiKey(req);
 
-    if (!isLLMConfigured() && !req.userId) {
+    // 设置用户API Key（如果已登录且配置了）
+    const authReq = req as AuthRequest;
+    await setupUserApiKey(authReq);
+
+    if (!isLLMConfigured() && !authReq.userId) {
       return res.status(500).json({ error: 'LLM API Key 未配置' });
     }
-    
+
     // 使用 qwen3.5-ocr 多模态模型（支持用户API Key）
     const effectiveKey = getEffectiveApiKey();
     const visionLLM = new ChatOpenAI({
@@ -798,25 +333,25 @@ router.post('/vision', optionalAuth, async (req: AuthRequest, res: Response) => 
       temperature: 0.1,
       maxTokens: 1024,
     });
-    
+
     // 构建消息内容（文本 + 图片）
     const content = [
       { type: 'text', text: question || '请描述这张图片的内容' },
       { type: 'image_url', image_url: { url: image.startsWith('data:') ? image : `data:image/png;base64,${image}` } },
     ];
-    
+
     const response = await visionLLM.invoke([new HumanMessage({ content })]);
     const answer = typeof response.content === 'string' ? response.content : JSON.stringify(response.content);
-    
+
     // 如果有会话ID，先校验归属再写入历史（防越权写他人会话）
     if (sessionId) {
-      if (!(await assertSessionOwner(sessionId, req.userId ?? null))) {
+      if (!(await assertSessionOwner(sessionId, authReq.userId ?? null))) {
         return res.status(403).json({ error: '无权访问该会话' });
       }
       await addMessage(sessionId, 'user', `[图片] ${question || '描述图片'}`);
       await addMessage(sessionId, 'assistant', answer);
     }
-    
+
     // 提取 token 用量
     const respAny = response as any;
     const rm = respAny?.response_metadata || {};
@@ -826,7 +361,7 @@ router.post('/vision', optionalAuth, async (req: AuthRequest, res: Response) => 
       completionTokens: usage.completionTokens || usage.completion_tokens || 0,
       totalTokens: (usage.promptTokens || usage.prompt_tokens || 0) + (usage.completionTokens || usage.completion_tokens || 0),
     };
-    
+
     res.json({
       answer,
       model: 'qwen3.5-ocr',

@@ -103,6 +103,11 @@ export async function sendMessageViaTask(
     enableThinking,
     agentId: extra?.agentId,
     collectionIds: extra?.collectionIds,
+    parentId: extra?.parentId,
+    branchId: extra?.branchId,
+    isEdit: extra?.isEdit,
+    editMessageId: extra?.editMessageId,
+    modelParams: extra?.modelParams,
   });
   const { taskId, sessionId: sid } = res.data;
 
@@ -111,7 +116,7 @@ export async function sendMessageViaTask(
     type: 'session_id',
     content: sid,
     mode,
-    branch_id: undefined,
+    branch_id: extra?.branchId,
     user_message_id: undefined,
     taskId,
   } as StreamChunk);

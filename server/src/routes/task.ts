@@ -14,7 +14,7 @@ const router = Router();
 // 创建任务并后台执行（立即返回 taskId，不阻塞）
 router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
   try {
-    const { sessionId, message, mode = 'agent', agentId, collectionIds, enableThinking } = req.body || {};
+    const { sessionId, message, mode = 'agent', agentId, collectionIds, enableThinking, parentId, branchId, isEdit, editMessageId, modelParams } = req.body || {};
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'message 不能为空' });
     }
@@ -25,8 +25,14 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: '无权访问该会话' });
     }
 
-    // 写入用户消息
-    await addMessage(sid, 'user', message, mode, {});
+    // 写入用户消息（编辑模式不新增：消息已由 editMessageApi 更新）
+    let userMessageId: string | undefined;
+    if (!isEdit) {
+      userMessageId = await addMessage(sid, 'user', message, mode, {
+        parentId: typeof parentId === 'string' ? parentId : undefined,
+        branchId: typeof branchId === 'string' ? branchId : undefined,
+      });
+    }
 
     const task = taskManager.create({
       sessionId: sid,
@@ -45,6 +51,12 @@ router.post('/', optionalAuth, async (req: AuthRequest, res: Response) => {
       agentId,
       collectionIds,
       enableThinking,
+      parentId: typeof parentId === 'string' ? parentId : undefined,
+      branchId: typeof branchId === 'string' ? branchId : undefined,
+      isEdit: isEdit === true,
+      editMessageId: typeof editMessageId === 'string' ? editMessageId : undefined,
+      modelParams: modelParams && typeof modelParams === 'object' ? modelParams : undefined,
+      userMessageId,
     }).catch((e) => {
       console.error('[Task] 后台执行失败:', e);
       taskManager.setError(task.id, e instanceof Error ? e.message : String(e));

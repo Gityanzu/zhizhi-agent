@@ -4,10 +4,6 @@ import { getToken } from '@/api/request';
 import type { ChatMessage, SessionInfo, DocumentInfo, Folder, BranchInfo, ModelParams, CustomAgent, CustomTool, Collection, Provider, ProviderGroup, CompareResult, ModelInfo, SkillInfo } from '@/types';
 import { createTask, cancelTask, approveTask, planConfirmTask, sendMessageViaTask } from '@/api/task';
 import {
-  sendMessage as apiSendMessage,
-  sendMessageStream,
-  approveStream,
-  planConfirmStream,
   getSessions,
   createSession,
   deleteSession,
@@ -670,7 +666,7 @@ export const useChatStore = defineStore('chat', () => {
     abortController.value = controller;
 
     try {
-      await sendMessageStream(
+      await sendMessageViaTask(
         newContent,
         currentSessionId.value,
         mode.value,
@@ -729,33 +725,26 @@ export const useChatStore = defineStore('chat', () => {
               });
               break;
             case 'approval_required':
-              if (chunk.requestId) {
+              if (chunk.requestId || chunk.taskId) {
                 msg.pendingApproval = {
-                  requestId: chunk.requestId,
+                  requestId: chunk.requestId || chunk.taskId || '',
                   kind: chunk.kind || 'write',
                   path: chunk.path || '',
                   inRoot: chunk.inRoot ?? false,
                   oldContent: chunk.oldContent,
                   newContent: chunk.newContent,
+                  taskId: chunk.taskId,
                 };
               }
               break;
 
             case 'plan_proposed':
-              if (chunk.requestId) {
+              // Plan 模式前置确认：挂计划卡，任务引擎阻塞等待用户确认
+              if (chunk.taskId) {
                 msg.pendingPlan = {
-                  requestId: chunk.requestId,
+                  requestId: chunk.taskId,
                   plan: (chunk as any).plan || [],
-                };
-              }
-              break;
-
-            case 'plan_proposed':
-              // Plan 模式前置确认：挂计划卡，后端流式循环阻塞等待用户确认
-              if (chunk.requestId) {
-                msg.pendingPlan = {
-                  requestId: chunk.requestId,
-                  plan: (chunk as any).plan || [],
+                  taskId: chunk.taskId,
                 };
               }
               break;
@@ -806,11 +795,14 @@ export const useChatStore = defineStore('chat', () => {
   async function respondApproval(messageId: string, approved: boolean, remember: boolean = false) {
     const msg = messages.value.find(m => m.id === messageId);
     if (!msg || !msg.pendingApproval || msg.pendingApproval.decided) return;
-    const { requestId, taskId } = msg.pendingApproval;
+    const { taskId } = msg.pendingApproval;
     msg.pendingApproval.decided = true;
+    if (!taskId) {
+      console.warn('审批缺少 taskId，无法恢复任务');
+      return;
+    }
     try {
-      if (taskId) await approveTask(taskId, approved, remember);
-      else await approveStream(requestId, approved, remember);
+      await approveTask(taskId, approved, remember);
     } catch (e) {
       console.error('审批响应失败:', e);
     }
@@ -820,13 +812,16 @@ export const useChatStore = defineStore('chat', () => {
   async function respondPlan(messageId: string, confirmed: boolean, feedback?: string) {
     const msg = messages.value.find(m => m.id === messageId);
     if (!msg || !msg.pendingPlan || msg.pendingPlan.decided) return;
-    const { requestId, taskId } = msg.pendingPlan;
+    const { taskId } = msg.pendingPlan;
     msg.pendingPlan.decided = true;
     msg.pendingPlan.confirmed = confirmed;
     msg.pendingPlan.feedback = feedback;
+    if (!taskId) {
+      console.warn('计划确认缺少 taskId，无法恢复任务');
+      return;
+    }
     try {
-      if (taskId) await planConfirmTask(taskId, confirmed, feedback);
-      else await planConfirmStream(requestId, confirmed, feedback);
+      await planConfirmTask(taskId, confirmed, feedback);
     } catch (e) {
       console.error('计划确认响应失败:', e);
     }

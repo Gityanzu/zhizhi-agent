@@ -346,17 +346,24 @@ export async function getSchema(id: string, userId?: string | null): Promise<Tab
   }
 }
 
-// 只读 SQL 校验：禁止写操作
+// 只读 SQL 校验：禁止写操作与危险函数
 function isReadOnlySelect(sql: string): boolean {
   const trimmed = sql.trim().replace(/;+$/, '').trim();
   // 只允许单条 SELECT
   if (!/^\s*select\b/i.test(trimmed)) return false;
-  // 禁止危险关键字
-  const forbidden = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|exec|execute|merge|replace)\b/i;
+  // 禁止写操作关键字与文件/系统读取函数（防止绕过只读读取服务器文件或执行副作用）
+  const forbidden = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|exec|execute|merge|replace|copy|into\s+outfile|into\s+dumpfile|load_file|pg_read_file|pg_read_binary_file|pg_ls_dir|lo_import|lo_export|dblink|xp_cmdshell|pg_sleep|benchmark|updatexml|extractvalue)\b/i;
   if (forbidden.test(trimmed)) return false;
+  // 禁止注释注入（-- 与 /* */），避免拼接/绕过多语句判断
+  if (/--|\/\*/.test(trimmed)) return false;
   // 禁止多语句
   if (/;\s*\S/.test(trimmed)) return false;
   return true;
+}
+
+// 追加行数上限：仅在未显式包含 LIMIT 时追加，避免重复 LIMIT 造成语法错误
+function withRowLimit(sql: string, limit = 100): string {
+  return /\blimit\s+\d/i.test(sql) ? sql : `${sql} LIMIT ${limit}`;
 }
 
 // 执行只读 SQL
@@ -366,15 +373,16 @@ export async function executeSQL(id: string, sql: string, userId?: string | null
   }
   const conn = await getConnection(id, userId);
   if (!conn) throw new Error('连接不存在');
+  const limited = withRowLimit(sql, 100);
   const { kind, pool } = await connectDB(conn);
   try {
     if (kind === 'mysql') {
-      const [rows, fields] = await pool.query(sql + ' LIMIT 100');
+      const [rows, fields] = await pool.query(limited);
       const columns = (fields as any[]).map((f: any) => f.name);
       await pool.end();
       return { columns, rows: (rows as any[]).slice(0, 100), rowCount: (rows as any[]).length };
     } else {
-      const result = await pool.query(sql + ' LIMIT 100');
+      const result = await pool.query(limited);
       await pool.end();
       const columns = result.fields.map((f: any) => f.name);
       return { columns, rows: result.rows.slice(0, 100), rowCount: result.rows.length };

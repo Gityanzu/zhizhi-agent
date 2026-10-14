@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { skillManager } from '../skills';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 // 获取所有 Skill 列表
 router.get('/list', (req, res) => {

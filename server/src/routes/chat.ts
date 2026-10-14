@@ -14,6 +14,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import type { ChatMessage } from '../types';
 import { optionalAuth, AuthRequest } from '../middleware/auth';
 import { getDefaultApiKey } from '../services/userApiKey';
+import { config } from '../config';
 
 // 辅助函数：设置请求级用户API Key
 async function setupUserApiKey(req: AuthRequest): Promise<void> {
@@ -218,7 +219,7 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
     if (actualMode === 'qa') {
       result = await simpleQA(message, history, enableThinking || false);
     } else if (actualMode === 'agent') {
-      result = await agentRun(message, history, { sessionId: sid, messageId: userMessageId });
+      result = await agentRun(message, history, { sessionId: sid, messageId: userMessageId, isDesktop: config.isDesktop });
     } else if (actualMode === 'multi') {
       // 多Agent协作模式
       const multiResult = await multiAgentRun(message, history);

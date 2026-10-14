@@ -1,4 +1,6 @@
 import * as fs from 'fs';
+import { config } from '../config';
+import { assertSafeUrl } from '../utils/ssrfGuard';
 
 // ==================== 浏览器工具（puppeteer-core + 系统 Chrome） ====================
 // 设计原则：puppeteer-core 未安装或系统 Chrome 未找到时，所有工具返回友好提示，绝不崩溃。
@@ -58,7 +60,10 @@ async function getPage(): Promise<any> {
     browserInstance = await puppeteer.launch({
       executablePath: chromePath,
       headless: 'new',
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      // 默认保留 Chrome 自带沙箱；仅在 root 容器等场景通过 BROWSER_NO_SANDBOX=true 显式关闭
+      args: config.agent.browserNoSandbox
+        ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        : ['--disable-dev-shm-usage'],
     });
     browserInstance.on('disconnected', () => {
       browserInstance = null;
@@ -77,6 +82,9 @@ async function getPage(): Promise<any> {
 
 export async function webNavigate(url: string): Promise<string> {
   if (!isBrowserAvailable()) return notAvailableMessage();
+  // SSRF/本地文件读防护：仅允许 http(s) 且禁止内网/回环/元数据地址（含 file://）
+  const guard = await assertSafeUrl(url);
+  if (!guard.ok) return `导航被沙箱拒绝：${guard.reason}`;
   try {
     const page = await getPage();
     const response = await page.goto(url, { waitUntil: 'domcontentloaded' });

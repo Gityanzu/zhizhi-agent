@@ -62,9 +62,23 @@ interface ToolResult {
   isError?: boolean;
 }
 
+// MCP 仅开放只读/纯计算工具；run_shell/code_interpreter/web_*/text_to_sql 等危险工具不对外开放
+const MCP_ALLOWED_TOOLS = new Set([
+  'search_knowledge_base', 'calculate', 'get_current_time',
+  'translate_text', 'summarize_text',
+  'read_file', 'list_files', 'search_files', 'search_codebase',
+]);
+
 // 执行工具（复用 agent.ts 的统一实现）
 async function executeTool(name: string, args: Record<string, any>): Promise<ToolResult> {
+  if (!MCP_ALLOWED_TOOLS.has(name)) {
+    return {
+      content: [{ type: 'text', text: `MCP 不允许调用工具「${name}」：仅开放只读工具（${[...MCP_ALLOWED_TOOLS].join(', ')}）` }],
+      isError: true,
+    };
+  }
   try {
+    // 不传上下文：无审批通道，即便白名单误放开危险工具也会被 L1 网关 fail-closed 拒绝
     const result = await agentExecuteTool(name, args);
     return {
       content: [{ type: 'text', text: result }],
@@ -120,7 +134,7 @@ export async function handleMCPRequest(request: any): Promise<any> {
           jsonrpc: '2.0',
           id,
           result: {
-            tools: tools.map(t => ({
+            tools: tools.filter(t => MCP_ALLOWED_TOOLS.has(t.name)).map(t => ({
               name: t.name,
               description: t.description,
               inputSchema: {

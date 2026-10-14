@@ -9,6 +9,8 @@ import {
 } from '../services/workflow';
 
 const router = Router();
+import { requireAuth } from '../middleware/auth';
+router.use(requireAuth);
 
 // 获取所有工作流
 router.get('/', async (req: Request, res: Response) => {

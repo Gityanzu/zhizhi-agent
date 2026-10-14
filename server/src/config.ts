@@ -79,5 +79,9 @@ export const config = {
     workspaceDir: process.env.WORKSPACE_DIR || '',
     // Web 托管模式是否允许访问 workspaceDir。默认 false 保持服务器沙箱零风险；仅在受信任的自部署场景开启。
     allowWebWorkspace: process.env.ALLOW_WEB_WORKSPACE === 'true',
+    // code_interpreter 沙箱：true 时尝试阻断子进程外联（best-effort，硬隔离由容器 L3 提供）；默认 false 兼容优先
+    codeSandboxNoNetwork: process.env.CODE_SANDBOX_NO_NETWORK === 'true',
+    // 浏览器沙箱：默认开启 Chrome 自带沙箱；仅在以 root 运行容器等场景才需设为 true 关闭
+    browserNoSandbox: process.env.BROWSER_NO_SANDBOX === 'true',
   },
 };

@@ -18,7 +18,11 @@ COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev --omit=optional && npm cache clean --force
 COPY --from=builder /app/dist ./dist
 COPY server/data/templates ./data/templates
-# 运行数据目录（uploads / 向量库持久化），生产建议挂载卷
-RUN mkdir -p /app/data/uploads /app/data/chroma
+# 运行数据目录（uploads / 向量库持久化 / Agent 产物），生产建议挂载卷
+# 以非 root 用户运行（L3 沙箱：降低容器内提权与文件系统破坏面）
+RUN addgroup -S app && adduser -S app -G app \
+    && mkdir -p /app/data/uploads /app/data/chroma /app/agent_output \
+    && chown -R app:app /app
+USER app
 EXPOSE 3001
 CMD ["node", "dist/index.js"]

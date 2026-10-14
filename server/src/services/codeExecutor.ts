@@ -3,12 +3,33 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import { config } from '../config';
 
 export interface CodeExecutionResult {
   stdout: string;
   stderr: string;
   exitCode: number;
   images: string[]; // base64-encoded images
+}
+
+// 沙箱环境变量：剔除含密钥/凭据语义的变量，防止被测代码读取服务器机密（如 LLM_API_KEY）
+const SECRET_ENV_RE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|COOKIE|SESSION|API)/i;
+function sanitizeEnv(): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v === undefined) continue;
+    if (SECRET_ENV_RE.test(k)) continue;
+    out[k] = v;
+  }
+  out.PYTHONUNBUFFERED = '1';
+  if (config.agent.codeSandboxNoNetwork) {
+    // best-effort 外联阻断：代理指向黑洞地址（硬隔离由容器网络策略在 L3 提供）
+    const sink = 'http://127.0.0.1:9';
+    out.HTTP_PROXY = sink; out.HTTPS_PROXY = sink;
+    out.http_proxy = sink; out.https_proxy = sink;
+    out.NO_PROXY = ''; out.no_proxy = '';
+  }
+  return out;
 }
 
 // 缓存：matplotlib 是否已安装
@@ -83,7 +104,8 @@ export async function executeCode(
       filePath = path.join(tmpDir, 'script.mjs');
       fs.writeFileSync(filePath, code, 'utf-8');
       cmd = 'node';
-      args = [filePath];
+      // 限制 V8 堆上限，避免被测代码耗尽内存
+      args = ['--max-old-space-size=256', filePath];
     }
 
     // 执行代码
@@ -94,7 +116,7 @@ export async function executeCode(
         cwd: tmpDir,
         timeout,
         maxBuffer: 5 * 1024 * 1024, // 5MB
-        env: { ...process.env, PYTHONUNBUFFERED: '1' },
+        env: sanitizeEnv(),
       }, (error, stdout, stderr) => {
         let exitCode = 0;
         if (error) {

@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import { usePostgres, query } from '../db';
+import { assertSafeUrl } from '../utils/ssrfGuard';
 import type { ToolDefinition } from './agent';
 
 export interface CustomTool {
@@ -211,6 +212,12 @@ export async function executeCustomTool(toolName: string, args: Record<string, a
       if (qs) {
         url += (url.includes('?') ? '&' : '?') + qs;
       }
+    }
+
+    // SSRF 防护：校验出站目标，禁止内网/回环/元数据地址与非 http(s) 协议
+    const guard = await assertSafeUrl(url);
+    if (!guard.ok) {
+      return `工具「${toolName}」请求被沙箱拒绝：${guard.reason}`;
     }
 
     const controller = new AbortController();

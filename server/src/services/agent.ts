@@ -10,8 +10,9 @@ import {
 } from '@langchain/core/messages';
 import * as fs from 'fs';
 import * as path from 'path';
-import { exec, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { executeCode } from './codeExecutor';
+import { gateToolExecution } from './toolPolicy';
 import { getDynamicTools, executeCustomTool, type CustomTool } from './customTool';
 import {
   webNavigate, webClick, webType, webScreenshot, webExtractText,
@@ -19,7 +20,7 @@ import {
 import { textToSQLAndExecute } from './dbQuery';
 import { getAgentOutputDir } from './agentOutput';
 import { parseFile as parseDocumentFile } from './document';
-import { resolveTarget, classify, getWorkspaceDir, type FileOperation } from './filePermission';
+import { resolveTarget, classify, isSensitive, getWorkspaceDir, type FileOperation } from './filePermission';
 import { indexCodebase, searchCodebase } from './codeIndex';
 import { randomUUID } from 'crypto';
 
@@ -323,11 +324,13 @@ export const tools: ToolDefinition[] = [
 // 工具执行上下文（可携带本次请求的知识库过滤范围、桌面模式、审批回调等）
 export interface ApprovalRequest {
   requestId: string;
-  kind: 'read' | 'write';
-  path: string;          // 目标绝对路径（供展示）
+  // read/write=文件读写；exec=本地命令/代码执行；network=外联/浏览器；db=外部数据库
+  kind: 'read' | 'write' | 'exec' | 'network' | 'db';
+  path: string;          // 目标绝对路径或 tool:<name>（供展示）
   inRoot: boolean;       // 是否位于输出根目录内
   oldContent?: string;   // 写操作：覆盖前内容（diff 左）
   newContent?: string;   // 写操作：拟写入内容（diff 右）
+  description?: string;  // 非文件类操作（exec/network/db）的人类可读说明
 }
 
 export interface ToolContext {
@@ -344,6 +347,10 @@ export async function executeTool(
   args: Record<string, any>,
   context?: ToolContext
 ): Promise<string> {
+  // L1 沙箱网关：exec/network/db 类工具强制 HITL 审批；无审批通道则 fail-closed 安全拒绝
+  const denied = await gateToolExecution(toolName, context);
+  if (denied) return denied;
+
   switch (toolName) {
     case 'search_knowledge_base':
       return await executeKnowledgeBaseSearch(args.query, context?.collectionIds);
@@ -802,24 +809,51 @@ function executeSearchFiles(keyword: string): string {
 }
 
 // 运行Shell命令（只读白名单，禁止代码执行器）
-const ALLOWED_COMMANDS = ['dir', 'ls', 'type', 'cat', 'ver', 'date', 'time', 'echo', 'whoami', 'hostname', 'systeminfo', 'ipconfig'];
+const ALLOWED_COMMANDS = ['dir', 'ls', 'ver', 'date', 'time', 'whoami', 'hostname', 'ipconfig', 'echo'];
+// cat/type 可读取任意文件，单独处理并限制在输出根目录内
+const FILE_READ_COMMANDS = ['cat', 'type'];
+// 禁止 shell 元字符：管道/重定向/串联/子命令等（配合 execFile 彻底消除命令注入）
+const SHELL_METACHARS = /[&|;<>`$(){}[\]!^]/;
 
 async function executeRunShell(command: string): Promise<string> {
+  const raw = (command || '').trim();
+  if (!raw) return '请提供要执行的命令';
+
+  if (SHELL_METACHARS.test(raw)) {
+    return `命令包含被禁止的字符（管道/重定向/串联等）：${raw}`;
+  }
+
+  const parts = raw.split(/\s+/);
+  const baseCmd = parts[0].toLowerCase();
+  const args = parts.slice(1);
+
+  const isFileRead = FILE_READ_COMMANDS.includes(baseCmd);
+  if (!ALLOWED_COMMANDS.includes(baseCmd) && !isFileRead) {
+    return `命令不被允许：${baseCmd}。仅支持只读命令：${[...ALLOWED_COMMANDS, ...FILE_READ_COMMANDS].join(', ')}`;
+  }
+
+  // cat/type：仅允许读取输出根目录内的非敏感文件，防止任意文件读取（如 .ssh/id_rsa、.env）
+  if (isFileRead) {
+    const targetArg = args.find((a) => a && !a.startsWith('-'));
+    if (!targetArg) return '请提供要读取的文件路径';
+    const target = resolveTarget(targetArg);
+    if (!target.inRoot) return `拒绝读取输出根目录外的文件：${target.absPath}`;
+    if (isSensitive(target.absPath)) return `拒绝读取敏感文件：${target.absPath}`;
+  }
+
+  // execFile：不经过 shell，参数以数组传递，元字符不再是特殊字符
   return new Promise((resolve) => {
-    const cmd = command.trim().toLowerCase();
-    const baseCmd = cmd.split(' ')[0];
-    
-    if (!ALLOWED_COMMANDS.includes(baseCmd)) {
-      resolve(`命令不被允许：${baseCmd}。仅支持只读命令：${ALLOWED_COMMANDS.join(', ')}`);
-      return;
-    }
-    
-    exec(command, { timeout: 10000, cwd: workDir() }, (error, stdout, stderr) => {
+    execFile(baseCmd, args, {
+      timeout: 10000,
+      cwd: workDir(),
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    }, (error, stdout, stderr) => {
       if (error) {
         resolve(`命令执行出错: ${error.message}\n${stderr || ''}`);
         return;
       }
-      const output = (stdout || '').trim();
+      const output = (stdout || '').toString().trim();
       resolve(`命令执行结果：\n${output || '(无输出)'}`);
     });
   });
@@ -1258,6 +1292,8 @@ export async function agentRun(
     messageId?: string;
     customAgent?: CustomAgentConfig;
     collectionIds?: string[];
+    isDesktop?: boolean;
+    requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
   }
 ): Promise<{
   answer: string;
@@ -1304,7 +1340,12 @@ export async function agentRun(
     onFinalAnswer: (answer) => {
       steps.push({ type: 'final_answer', content: answer });
     },
-  }, options?.customAgent, { collectionIds: options?.collectionIds, sessionId: options?.sessionId, isDesktop: false });
+  }, options?.customAgent, {
+    collectionIds: options?.collectionIds,
+    sessionId: options?.sessionId,
+    isDesktop: options?.isDesktop,
+    requestApproval: options?.requestApproval,
+  });
 
   return { answer, steps, sources, tokenUsage };
 }

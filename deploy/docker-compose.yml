@@ -42,6 +42,15 @@ services:
     environment:
       NODE_ENV: production
       PORT: "3001"
+      HOME: /tmp
+      # 生产强制密钥（未设置时 compose 直接报错，避免以弱默认值启动）
+      JWT_SECRET: ${JWT_SECRET:?请设置 JWT_SECRET（生产必须，禁止硬编码默认值）}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?请设置 ENCRYPTION_KEY（用于加密 LLM Key/凭据）}
+      ENC_KEY: ${ENC_KEY:-zhizhi_db_enc_2024}
+      # Agent 产物输出根（只读根文件系统下需挂载可写卷）
+      ZHI_AGENT_OUTPUT_DIR: /app/agent_output
+      # code_interpreter 沙箱：true 时尝试阻断子进程外联（硬隔离建议配合无网络容器）
+      CODE_SANDBOX_NO_NETWORK: ${CODE_SANDBOX_NO_NETWORK:-false}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen3.8-flash}
@@ -60,8 +69,18 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-}
+    # ---- L3 沙箱加固：只读根文件系统 + 去特权 + 限制进程数 ----
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
     volumes:
       - app_data:/app/data
+      - agent_output:/app/agent_output
     depends_on:
       postgres:
         condition: service_healthy
@@ -91,3 +110,4 @@ volumes:
   pg_data:
   redis_data:
   app_data:
+  agent_output:

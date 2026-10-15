@@ -5,6 +5,7 @@ import {
   getSessionMessages,
   getSessionInfo,
   deleteSession,
+  renameSession,
   clearSession,
   getMessageBranches,
   getMessageBranch,
@@ -152,6 +153,16 @@ router.put('/:id/tags', async (req: AuthRequest, res: Response) => {
   }
   await updateSessionTags(id, tags);
   res.json({ message: '标签已更新' });
+});
+
+// 重命名会话标题（顶栏内联编辑）
+router.put('/:id/title', async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  if (!(await assertSessionOwner(id, req.userId ?? null))) return notFound(res);
+  const { title } = req.body || {};
+  const ok = await renameSession(id, String(title || ''));
+  if (!ok) return res.status(400).json({ error: '标题不能为空或会话不存在' });
+  res.json({ success: true });
 });
 
 // 会话关联知识库（多选）

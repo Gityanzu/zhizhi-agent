@@ -455,6 +455,24 @@ export async function getSessionInfo(sessionId: string): Promise<SessionInfo | n
   }
 }
 
+// 重命名会话标题（顶栏内联编辑用）
+export async function renameSession(sessionId: string, title: string): Promise<boolean> {
+  const clean = String(title || '').trim().slice(0, 100);
+  if (!clean) return false;
+  if (usePostgres) {
+    const result = await query(
+      'UPDATE sessions SET title = $1, updated_at = NOW() WHERE id = $2',
+      [clean, sessionId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  session.info.title = clean;
+  saveToFile();
+  return true;
+}
+
 // 删除会话
 export async function deleteSession(sessionId: string): Promise<boolean> {
   if (usePostgres) {

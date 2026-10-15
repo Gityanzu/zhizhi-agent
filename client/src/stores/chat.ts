@@ -41,6 +41,7 @@ import {
   togglePinApi,
   updateTagsApi,
   updateSessionModelModeApi,
+  renameSessionApi,
   getAgents,
   createAgent,
   updateAgent,
@@ -664,6 +665,15 @@ export const useChatStore = defineStore('chat', () => {
     await updateFolderApi(folderId, name);
     const f = folders.value.find(f => f.id === folderId);
     if (f) f.name = name;
+  }
+
+  // 重命名会话标题（顶栏内联编辑；同步会话列表与当前会话）
+  async function renameSession(sessionId: string, title: string) {
+    const clean = title.trim();
+    if (!clean) return;
+    await renameSessionApi(sessionId, clean);
+    const s = sessions.value.find(x => x.id === sessionId);
+    if (s) s.title = clean;
   }
 
   // 删除文件夹
@@ -1809,6 +1819,7 @@ export const useChatStore = defineStore('chat', () => {
     renameFolder,
     removeFolder,
     moveToFolder,
+    renameSession,
     togglePin,
     updateTags,
     newSession,

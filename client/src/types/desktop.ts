@@ -154,7 +154,9 @@ export type DesktopMenuCommandId =
   /** 停止生成 */
   | 'chat:stop'
   /** 切换深色 / 浅色模式 */
-  | 'view:theme';
+  | 'view:theme'
+  /** 收起/展开对话页左侧会话栏（WorkBuddy 式三栏布局开关） */
+  | 'layout:toggleSidebar';
 
 export interface DesktopMenuCommandPayload {
   /** 仅 app:navigate 使用 */

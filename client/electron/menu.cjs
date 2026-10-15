@@ -111,6 +111,7 @@ const SHORTCUTS = [
   ['放大 / 缩小 / 实际大小', 'Ctrl/Cmd + = / - / 0'],
   ['切换到各功能页', 'Ctrl/Cmd + 1 ~ 6'],
   ['切换全屏', isMac ? 'Ctrl + Cmd + F' : 'F11'],
+  ['切换侧边栏', 'Ctrl/Cmd + B'],
   ['开发者工具', 'Ctrl/Cmd + Shift + I'],
   ['停止生成', 'Esc'],
   ['关闭窗口', 'Ctrl/Cmd + W'],
@@ -278,6 +279,8 @@ function viewMenu() {
       { type: 'separator' },
       { role: 'togglefullscreen', label: '切换全屏' },
       { label: '切换深色模式', accelerator: 'CmdOrCtrl+Shift+D', click: () => sendCommand('view:theme') },
+      // 布局类命令：对话页的三栏开关（WorkBuddy 式，收起/展开左侧会话栏）
+      { label: '切换侧边栏', accelerator: 'CmdOrCtrl+B', click: () => sendCommand('layout:toggleSidebar') },
     ],
   };
 }

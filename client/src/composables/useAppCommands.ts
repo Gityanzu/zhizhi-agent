@@ -22,6 +22,7 @@ import type { DesktopMenuCommand, DesktopMenuCommandId } from '@/types/desktop';
 const PAGE_COMMANDS: Partial<Record<DesktopMenuCommandId, string>> = {
   'chat:import': '/chat',
   'chat:export': '/chat',
+  'layout:toggleSidebar': '/chat',
 };
 
 const THEME_KEY = 'theme';

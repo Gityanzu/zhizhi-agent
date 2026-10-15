@@ -99,3 +99,9 @@ export async function updateSessionModelModeApi(sessionId: string, mode?: string
   const res = await api.put(`/api/sessions/${sessionId}/model-mode`, { mode, model });
   return res.data;
 }
+
+// 重命名会话标题（顶栏内联编辑）
+export async function renameSessionApi(sessionId: string, title: string) {
+  const res = await api.put(`/api/sessions/${sessionId}/title`, { title });
+  return res.data;
+}

@@ -16,15 +16,9 @@
 
     <!-- 主内容区 -->
     <div class="main-content">
-      <!-- 顶部栏 -->
+      <!-- 顶部栏：标题居左可编辑，图标按钮居右（对标 WorkBuddy） -->
       <header class="header">
         <div class="header-left">
-          <!-- 侧边栏收起/展开：桌面端顶栏最左侧 -->
-          <el-tooltip v-if="!isMobile" :content="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'" placement="bottom">
-            <button class="icon-btn" @click="toggleSidebar">
-              <el-icon :size="18"><component :is="sidebarCollapsed ? Expand : Fold" /></el-icon>
-            </button>
-          </el-tooltip>
           <!-- 移动端汉堡菜单 -->
           <el-button
             v-if="isMobile"
@@ -34,20 +28,51 @@
           >
             <el-icon :size="20"><Menu /></el-icon>
           </el-button>
-          <h1 class="logo">智知</h1>
 
-          <!-- Agent 选择器 -->
-          <AgentSelector />
-        </div>
-
-        <div class="header-center">
-          <!-- 当前会话标题 -->
-          <span class="session-title" :title="chatStore.currentSession?.title || ''">
-            {{ chatStore.currentSession?.title || '新对话' }}
-          </span>
+          <!-- 当前会话标题：居左，可内联重命名 -->
+          <template v-if="editingTitle">
+            <input
+              ref="titleInputRef"
+              v-model="titleDraft"
+              class="session-title-input"
+              maxlength="100"
+              placeholder="会话标题"
+              @keydown.enter="saveTitle"
+              @keydown.esc="cancelEditTitle"
+              @blur="saveTitle"
+            />
+            <el-tooltip content="确定（Enter）" placement="bottom">
+              <button class="icon-btn" @mousedown.prevent="saveTitle">
+                <el-icon :size="16"><Check /></el-icon>
+              </button>
+            </el-tooltip>
+          </template>
+          <template v-else>
+            <span class="session-title" :title="chatStore.currentSession?.title || ''">
+              {{ chatStore.currentSession?.title || '新对话' }}
+            </span>
+            <el-tooltip v-if="chatStore.currentSessionId" content="重命名" placement="bottom">
+              <button class="icon-btn title-edit-btn" @click="startEditTitle">
+                <el-icon :size="14"><EditPen /></el-icon>
+              </button>
+            </el-tooltip>
+          </template>
         </div>
 
         <div class="header-right">
+          <!-- 桌面端：侧边栏开关在原生菜单（视图 → 切换侧边栏，Ctrl+B）；
+               Web 端没有原生菜单，这里保留按钮 -->
+          <el-tooltip v-if="!isMobile && !isDesktop" :content="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'" placement="bottom">
+            <button class="icon-btn" @click="toggleSidebar">
+              <el-icon :size="18"><component :is="sidebarCollapsed ? Expand : Fold" /></el-icon>
+            </button>
+          </el-tooltip>
+          <!-- 打开/关闭右侧资源面板 -->
+          <el-tooltip v-if="!isMobile" :content="rightPanelVisible ? '收起右侧栏' : '打开右侧栏'" placement="bottom">
+            <button class="icon-btn" :class="{ active: rightPanelVisible }" @click="toggleRightPanel">
+              <el-icon :size="18"><component :is="rightPanelVisible ? DArrowRight : DArrowLeft" /></el-icon>
+            </button>
+          </el-tooltip>
           <!-- 打开/关闭右侧资源面板 -->
           <el-tooltip v-if="!isMobile" :content="rightPanelVisible ? '收起右侧栏' : '打开右侧栏'" placement="bottom">
             <button class="icon-btn" :class="{ active: rightPanelVisible }" @click="toggleRightPanel">
@@ -351,7 +376,6 @@ import MemoryPanel from '@/components/knowledge/MemoryPanel.vue'
 import PromptPanel from '@/components/knowledge/PromptPanel.vue'
 import ModelParamsPanel from '@/components/agent/ModelParamsPanel.vue'
 import ModelCompareView from '@/components/agent/ModelCompareView.vue'
-import AgentSelector from '@/components/agent/AgentSelector.vue'
 import AgentManager from '@/components/agent/AgentManager.vue'
 import CustomToolManager from '@/components/agent/CustomToolManager.vue'
 import AgentMarket from '@/components/agent/AgentMarket.vue'
@@ -393,10 +417,43 @@ const showMobileSkillDialog = ref(false)
 const showMobileModelDialog = ref(false)
 
 /* ---------------- 三栏布局：左侧栏收起 / 右侧资源面板 ---------------- */
+const isDesktopApp = !!window.desktop?.isDesktop
 const sidebarCollapsed = ref(localStorage.getItem('sidebar-collapsed') === '1')
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
   try { localStorage.setItem('sidebar-collapsed', sidebarCollapsed.value ? '1' : '0') } catch { /* ignore */ }
+}
+
+/* ---------------- 会话标题内联编辑 ---------------- */
+const editingTitle = ref(false)
+const titleDraft = ref('')
+const titleInputRef = ref<HTMLInputElement | null>(null)
+
+function startEditTitle() {
+  titleDraft.value = chatStore.currentSession?.title || ''
+  editingTitle.value = true
+  nextTick(() => {
+    titleInputRef.value?.focus()
+    titleInputRef.value?.select()
+  })
+}
+
+async function saveTitle() {
+  if (!editingTitle.value) return
+  editingTitle.value = false
+  const title = titleDraft.value.trim()
+  const sid = chatStore.currentSessionId
+  if (!sid || !title) return
+  if (title === chatStore.currentSession?.title) return
+  try {
+    await chatStore.renameSession(sid, title)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || '重命名失败')
+  }
+}
+
+function cancelEditTitle() {
+  editingTitle.value = false
 }
 
 const rightPanelVisible = ref(false)
@@ -711,7 +768,9 @@ function handleKeydown(e: KeyboardEvent) {
 // （导入弹窗、导出都依赖本组件的局部状态，所以不能上提到全局处理）
 function handleAppCommand(e: Event) {
   const id = (e as CustomEvent<{ id?: string }>).detail?.id
-  if (id === 'chat:import') {
+  if (id === 'layout:toggleSidebar') {
+    toggleSidebar()
+  } else if (id === 'chat:import') {
     showImportDialog.value = true
   } else if (id === 'chat:export') {
     void exportConversation()
@@ -810,33 +869,49 @@ onUnmounted(() => {
 }
 
 .header-left {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
   min-width: 0;
 }
 
-.header-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 顶栏中间：当前会话标题 */
+/* 会话标题：居左可编辑（对标 WorkBuddy 的标题+铅笔） */
 .session-title {
-  max-width: 46vw;
+  max-width: 420px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+  cursor: default;
+}
+.title-edit-btn {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.header-left:hover .title-edit-btn,
+.title-edit-btn:focus {
+  opacity: 1;
+}
+.session-title-input {
+  width: 320px;
+  max-width: 46vw;
+  padding: 4px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  outline: none;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* 中栏对话 + 右栏资源面板 */

@@ -248,7 +248,7 @@ router.post('/send', optionalAuth, userCredentialContext(), async (req: AuthRequ
       if (actualMode === 'qa') {
         return await simpleQA(message, history, enableThinking || false);
       } else if (actualMode === 'agent') {
-        return await agentRun(message, history, { sessionId: sid, messageId: userMessageId, isDesktop: config.isDesktop });
+        return await agentRun(message, history, { sessionId: sid, messageId: userMessageId, isDesktop: config.isDesktop, userId: req.userId ?? null });
       } else if (actualMode === 'multi') {
         // 多Agent协作模式
         const multiResult = await multiAgentRun(message, history);

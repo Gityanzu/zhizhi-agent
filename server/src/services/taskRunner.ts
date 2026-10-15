@@ -197,6 +197,7 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
           collectionIds: Array.isArray(input.collectionIds) ? input.collectionIds : undefined,
           isDesktop,
           sessionId,
+          userId: input.userId,
           requestApproval,
         });
         let full = '';

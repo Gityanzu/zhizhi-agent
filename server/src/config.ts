@@ -59,11 +59,26 @@ export const config = {
     chunkSize: 500,
     chunkOverlap: 50,
     topK: 5,
-    // 功能7：混合检索 + Rerank（纯内存 BM25 + RRF 融合）
+    // 混合检索（向量 + BM25，RRF 召回融合）
     useHybridSearch: true,
     bm25K1: 1.5,
     bm25B: 0.75,
     rrfK: 60,
+    // 真实 Rerank：RRF 召回 topK*rerankRecallMultiplier 后，经 rerank 模型精排取 topK。
+    // DashScope: gte-rerank-v2（与 LLM 同一 API Key）。失败自动降级为 RRF 排序，不阻断检索。
+    rerankEnabled: process.env.RAG_RERANK_ENABLED !== 'false',
+    rerankModel: process.env.RAG_RERANK_MODEL || 'gte-rerank-v2',
+    rerankRecallMultiplier: 3,
+    // 历史感知 Query 改写：多轮对话时把指代性问题改写成独立检索 query
+    queryRewriteEnabled: process.env.RAG_QUERY_REWRITE !== 'false',
+    // Embedding 分批大小（每批一次 API 调用，配合重试避免大文档超限）
+    embedBatchSize: 16,
+    embedMaxRetries: 3,
+    // 规模护栏：超限直接报错，防止单文档/全库把内存与 embedding 费用打爆
+    maxChunksPerDoc: parseInt(process.env.RAG_MAX_CHUNKS_PER_DOC || '2000', 10),
+    maxTotalChunks: parseInt(process.env.RAG_MAX_TOTAL_CHUNKS || '100000', 10),
+    // 多租户隔离：启用后检索强制过滤 metadata.userId（现有历史数据无归属，默认关闭）
+    enforceUserIsolation: process.env.RAG_USER_ISOLATION === 'true',
   },
   
   agent: {

@@ -130,7 +130,8 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       req.file.path,
       originalName,
       req.file.size,
-      collectionId
+      collectionId,
+      (req as any).userId ?? null
     );
 
     res.json({

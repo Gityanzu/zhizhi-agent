@@ -27,6 +27,7 @@ import {
   webNavigate, webClick, webType, webScreenshot, webExtractText,
 } from './browserTool';
 import { textToSQLAndExecute } from './dbQuery';
+import { rewriteQueryForRetrieval } from './queryRewrite';
 import { getAgentOutputDir } from './agentOutput';
 import { buildHistoryMessages, type HistoryMessage } from './history';
 import { parseFile as parseDocumentFile } from './document';
@@ -444,7 +445,7 @@ export async function executeTool(
 
   switch (toolName) {
     case 'search_knowledge_base':
-      return await executeKnowledgeBaseSearch(args.query, context?.collectionIds);
+      return await executeKnowledgeBaseSearch(args.query, context?.collectionIds, context?.userId);
     case 'calculate':
       return executeCalculate(args.expression);
     case 'get_current_time':
@@ -557,15 +558,45 @@ async function ensureFileAccess(
   return { ok: true, absPath: target.absPath, inRoot: target.inRoot };
 }
 
-// 知识库检索工具
-async function executeKnowledgeBaseSearch(query: string, collectionIds?: string[]): Promise<string> {
+// 知识库检索工具（带引用角标 + 用户隔离过滤）
+async function executeKnowledgeBaseSearch(query: string, collectionIds?: string[], userId?: string | null): Promise<string> {
   try {
-    const results = await hybridSearch(query, config.rag.topK, collectionIds);
+    const results = await hybridSearch(query, config.rag.topK, collectionIds, userId ?? undefined);
     if (results.length === 0) return '知识库中未找到相关内容。';
-    return results.map((r, i) => `[来源: ${r.source}]\n${r.content}`).join('\n\n---\n\n');
+    // [1][2] 角标：配合系统提示词让回答标注来源编号，前端溯源卡片按序对应
+    return results
+      .map((r, i) => `[${i + 1}] 来源: ${r.source}${r.page ? ` (第${r.page}页)` : ''}\n${r.content}`)
+      .join('\n\n---\n\n');
   } catch (error) {
     return `检索失败: ${error instanceof Error ? error.message : String(error)}`;
   }
+}
+
+// 知识库检索前置：历史感知 Query 改写（多轮指代消解）。
+// 首轮对话无历史时零 LLM 开销直接跳过；改写失败静默回退原句，绝不阻断检索。
+async function maybeRewriteKnowledgeBaseQuery(
+  toolName: string,
+  toolArgs: Record<string, any>,
+  messages: any[]
+): Promise<void> {
+  if (toolName !== 'search_knowledge_base' || !config.rag.queryRewriteEnabled) return;
+  const question = typeof toolArgs.query === 'string' ? toolArgs.query.trim() : '';
+  if (!question) return;
+
+  // 从消息序列提取最近对话（排除当前问题本身，只保留有实际内容的轮次）
+  const history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  for (const m of messages) {
+    const content = typeof m?.content === 'string' ? m.content : '';
+    if (!content.trim()) continue;
+    if (m instanceof HumanMessage) history.push({ role: 'user', content });
+    else if (m instanceof AIMessage && !(m as any).tool_calls?.length) {
+      history.push({ role: 'assistant', content });
+    }
+  }
+  if (history.length && history[history.length - 1].role === 'user') history.pop();
+  if (history.length === 0) return;
+
+  toolArgs.query = await rewriteQueryForRetrieval(question, history);
 }
 
 // 文档解析工具：PDF/Word/Markdown/TXT/CSV → 纯文本（走统一文件权限/审批链路）
@@ -1305,6 +1336,7 @@ async function runAgentLoop(
     collectionIds?: string[];
     isDesktop?: boolean;
     sessionId?: string;
+    userId?: string | null;
     requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
   }
 ): Promise<{ answer: string; sources: RetrievalResult[]; tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number }; artifacts: MessageArtifact[] }> {
@@ -1323,6 +1355,7 @@ async function runAgentLoop(
     collectionIds,
     isDesktop: options?.isDesktop,
     sessionId: options?.sessionId,
+    userId: options?.userId ?? null,
     requestApproval: options?.requestApproval,
     onArtifact: (a) => {
       if (!artifacts.some((x) => x.path === a.path)) artifacts.push(a);
@@ -1408,12 +1441,13 @@ async function runAgentLoop(
 
         callbacks.onToolCall?.(toolName, toolArgs);
 
+        await maybeRewriteKnowledgeBaseQuery(toolName, toolArgs, messages);
         const toolResult = await executeTool(toolName, toolArgs, toolContext);
 
         callbacks.onToolResult?.(toolName, toolResult);
 
         if (toolName === 'search_knowledge_base') {
-          const sources = await hybridSearch(toolArgs.query, config.rag.topK, collectionIds);
+          const sources = await hybridSearch(toolArgs.query, config.rag.topK, collectionIds, toolContext.userId ?? undefined);
           allSources.push(...sources);
         }
 
@@ -1470,6 +1504,7 @@ export async function agentRun(
     customAgent?: CustomAgentConfig;
     collectionIds?: string[];
     isDesktop?: boolean;
+    userId?: string | null;
     requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
   }
 ): Promise<{
@@ -1522,6 +1557,7 @@ export async function agentRun(
     collectionIds: options?.collectionIds,
     sessionId: options?.sessionId,
     isDesktop: options?.isDesktop,
+    userId: options?.userId,
     requestApproval: options?.requestApproval,
   });
 
@@ -1537,6 +1573,7 @@ export async function* agentRunStream(
     collectionIds?: string[];
     isDesktop?: boolean;
     sessionId?: string;
+    userId?: string | null;
     requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
   }
 ): AsyncGenerator<{
@@ -1567,6 +1604,7 @@ export async function* agentRunStream(
     collectionIds,
     isDesktop: options?.isDesktop,
     sessionId: options?.sessionId,
+    userId: options?.userId ?? null,
     requestApproval: options?.requestApproval,
     onArtifact: (a) => {
       // 同一路径只留一条：模型常见的"先 create 再 append"会把同一个文件登记两次，
@@ -1714,6 +1752,7 @@ export async function* agentRunStream(
 
         yield { type: 'tool_call', content: `调用工具: ${toolName}`, toolCall: { name: toolName, arguments: toolArgs } };
 
+        await maybeRewriteKnowledgeBaseQuery(toolName, toolArgs, messages);
         const artifactCountBefore = artifacts.length;
         const toolResult = await executeTool(toolName, toolArgs, toolContext);
         const producedArtifacts = artifacts.slice(artifactCountBefore);
@@ -1726,7 +1765,7 @@ export async function* agentRunStream(
         };
 
         if (toolName === 'search_knowledge_base') {
-          const sources = await hybridSearch(toolArgs.query, config.rag.topK, collectionIds);
+          const sources = await hybridSearch(toolArgs.query, config.rag.topK, collectionIds, toolContext.userId ?? undefined);
           allSources.push(...sources);
         }
 

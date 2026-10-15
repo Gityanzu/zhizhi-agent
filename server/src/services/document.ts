@@ -3,7 +3,7 @@ import path from 'path';
 import mammoth from 'mammoth';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { config } from '../config';
-import { addDocuments, deleteDocumentsBySource } from './vectorStore';
+import { addDocuments, deleteDocumentsByDocId } from './vectorStore';
 import { DocumentInfo } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { usePostgres, query } from '../db';
@@ -102,12 +102,20 @@ export async function splitText(text: string): Promise<string[]> {
 }
 
 // 处理上传的文档：解析 -> 分块 -> 向量化 -> 存储
+// 同名覆盖语义：已存在同名文档时先删除旧文档（向量 + 元数据），避免重复向量与检索歧义
 export async function processDocument(
   filePath: string,
   originalName: string,
   fileSize: number,
-  collectionId?: string | null
+  collectionId?: string | null,
+  userId?: string | null
 ): Promise<DocumentInfo> {
+  // 0. 同名覆盖：删除旧的同名文档（按 docId 精确清理其全部向量）
+  const existing = (await getAllDocuments()).filter(d => d.name === originalName);
+  for (const old of existing) {
+    await deleteDocument(old.id);
+  }
+
   const docId = uuidv4();
   const uploadTime = new Date().toISOString();
 
@@ -117,17 +125,18 @@ export async function processDocument(
   // 2. 文本分块
   const chunks = await splitText(text);
 
-  // 3. 构建元数据
+  // 3. 构建元数据（userId：多租户隔离的检索过滤依据，桌面端/单用户可为空）
   const metadatas = chunks.map((_, index) => ({
     source: originalName,
     docId,
     chunkIndex: index,
     uploadTime,
     totalChunks: chunks.length,
+    ...(userId ? { userId } : {}),
     ...(collectionId ? { collectionId } : {}),
   }));
 
-  // 4. 添加到向量库
+  // 4. 添加到向量库（任一批 embedding 失败会整体抛错，不会留下半份索引）
   await addDocuments(chunks, metadatas);
 
   // 5. 记录文档信息
@@ -206,8 +215,8 @@ export async function deleteDocument(docId: string): Promise<boolean> {
     if (!doc) return false;
   }
   
-  // 从向量库删除
-  await deleteDocumentsBySource(doc.name);
+  // 从向量库删除（按 docId 精确清理，修复同名文件互相误删的缺陷）
+  await deleteDocumentsByDocId(docId);
   
   // 删除上传的文件
   const uploadPath = path.join(config.upload.dir, `${docId}_${doc.name}`);

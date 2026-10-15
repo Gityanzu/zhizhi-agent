@@ -74,7 +74,7 @@ export interface RetrievalResult {
   chunkIndex?: number;
   page?: number;
   highlightedContent?: string;
-  retrievalMethod?: 'vector' | 'bm25' | 'hybrid';
+  retrievalMethod?: 'vector' | 'bm25' | 'hybrid' | 'rerank';
 }
 
 // 知识库集合

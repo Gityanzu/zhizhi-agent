@@ -258,6 +258,7 @@ export async function addMessage(
     tokenUsage?: any;
     parentId?: string;
     branchId?: string;
+    durationMs?: number;
     artifacts?: any[];
   }
 ): Promise<string> {

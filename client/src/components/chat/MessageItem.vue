@@ -1,55 +1,70 @@
 <template>
   <div class="message-item" :class="message.role">
-    <div class="avatar">
-      <el-icon v-if="message.role === 'user'" :size="20"><User /></el-icon>
-      <el-icon v-else :size="20"><Service /></el-icon>
+    <!-- 助手：品牌头像 + 名称置于内容上方（WorkBuddy 式）；用户：无头像，仅气泡 -->
+    <div v-if="message.role === 'assistant'" class="assistant-head">
+      <AgentAvatar :size="26" />
+      <span class="assistant-name">{{ agentDisplayName }}</span>
     </div>
-    
+
     <div class="message-content">
       <div class="message-bubble">
-        <!-- 思考过程展示 -->
-        <div v-if="message.thinking" class="thinking-block">
-          <div class="thinking-header" @click="toggleThinking">
-            <el-icon class="thinking-icon"><MagicStick /></el-icon>
-            <span class="thinking-title">思考过程</span>
-            <el-icon class="expand-icon" :class="{ expanded: expandedThinking }">
-              <ArrowDown />
-            </el-icon>
-          </div>
-          <div v-if="expandedThinking" class="thinking-content">
-            <div class="thinking-text">{{ message.thinking }}</div>
-          </div>
-        </div>
-        
-        <!-- 工具调用展示 -->
-        <div v-if="message.toolCalls && message.toolCalls.length > 0" class="tool-calls">
-          <div
-            v-for="(tool, index) in message.toolCalls"
-            :key="index"
-            class="tool-call-item"
-          >
-            <div class="tool-call-header" @click="toggleTool(index)">
-              <el-icon class="tool-icon"><MagicStick /></el-icon>
-              <span class="tool-name">{{ getToolDisplayName(tool.name) }}</span>
-              <el-icon class="expand-icon" :class="{ expanded: expandedTools.includes(index) }">
-                <ArrowDown />
-              </el-icon>
-            </div>
-            <div v-if="expandedTools.includes(index)" class="tool-call-detail">
-              <div class="tool-args">
-                <span class="label">参数：</span>
-                <code>{{ JSON.stringify(tool.arguments, null, 2) }}</code>
+        <!-- 规划与执行摘要条：已完成 Xs · N 个步骤，展开看思考与工具明细 -->
+        <div
+          v-if="message.role === 'assistant' && !message.isStreaming && (message.thinking || (message.toolCalls && message.toolCalls.length))"
+          class="exec-block"
+        >
+          <button class="exec-head" @click="execExpanded = !execExpanded">
+            <span class="exec-status">{{ execStatusText }}</span>
+            <span class="exec-count" v-if="message.toolCalls?.length">{{ message.toolCalls.length }} 个步骤</span>
+            <el-icon class="expand-icon" :class="{ expanded: execExpanded }"><ArrowDown /></el-icon>
+          </button>
+          <div v-show="execExpanded" class="exec-body">
+            <!-- 深度思考 -->
+            <div v-if="message.thinking" class="thinking-block">
+              <div class="thinking-header" @click="toggleThinking">
+                <el-icon class="thinking-icon"><MagicStick /></el-icon>
+                <span class="thinking-title">深度思考</span>
+                <el-icon class="expand-icon" :class="{ expanded: expandedThinking }">
+                  <ArrowDown />
+                </el-icon>
               </div>
-              <div v-if="tool.result" class="tool-result">
-                <span class="label">结果：</span>
-                <!-- 功能14：浏览器截图 base64 渲染 -->
-                <img
-                  v-if="getScreenshotImage(tool.result)"
-                  :src="getScreenshotImage(tool.result) || undefined"
-                  class="screenshot-img"
-                  @click="previewImage(getScreenshotImage(tool.result) || '')"
-                />
-                <div v-else class="result-content">{{ tool.result }}</div>
+              <div v-if="expandedThinking" class="thinking-content">
+                <div class="thinking-text">{{ message.thinking }}</div>
+              </div>
+            </div>
+
+            <!-- 工具执行明细：动词 + 对象（文件名/查询词），可展开参数与结果 -->
+            <div v-if="message.toolCalls && message.toolCalls.length > 0" class="tool-calls">
+              <div
+                v-for="(tool, index) in message.toolCalls"
+                :key="index"
+                class="tool-call-item"
+              >
+                <div class="tool-call-header" @click="toggleTool(index)">
+                  <el-icon class="tool-icon"><component :is="toolVerb(tool.name).icon" /></el-icon>
+                  <span class="tool-verb">{{ toolVerb(tool.name).verb }}</span>
+                  <span class="tool-target" :title="toolTargetFull(tool)">{{ toolTarget(tool) }}</span>
+                  <el-icon class="expand-icon" :class="{ expanded: expandedTools.includes(index) }">
+                    <ArrowDown />
+                  </el-icon>
+                </div>
+                <div v-if="expandedTools.includes(index)" class="tool-call-detail">
+                  <div class="tool-args">
+                    <span class="label">参数：</span>
+                    <code>{{ JSON.stringify(tool.arguments, null, 2) }}</code>
+                  </div>
+                  <div v-if="tool.result" class="tool-result">
+                    <span class="label">结果：</span>
+                    <!-- 功能14：浏览器截图 base64 渲染 -->
+                    <img
+                      v-if="getScreenshotImage(tool.result)"
+                      :src="getScreenshotImage(tool.result) || undefined"
+                      class="screenshot-img"
+                      @click="previewImage(getScreenshotImage(tool.result) || '')"
+                    />
+                    <div v-else class="result-content">{{ tool.result }}</div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -315,7 +330,10 @@ import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
 import type { ChatMessage, CodeExecutionResult, PendingApproval } from '@/types'
 import { executeCode } from '@/api'
+import { useChatStore } from '@/stores/chat'
+import AgentAvatar from '@/components/common/AgentAvatar.vue'
 import MessageArtifacts from './MessageArtifacts.vue'
+import { View, EditPen as EditPenIcon, Plus, Search, Cpu, Monitor as TerminalIcon, Connection, Folder, Document } from '@element-plus/icons-vue'
 
 const props = defineProps<{
   message: ChatMessage
@@ -586,6 +604,71 @@ function getToolDisplayName(name: string): string {
   return names[name] || name
 }
 
+/* ================= 执行摘要块（WorkBuddy 式「已完成 Xs」） ================= */
+const chatStore = useChatStore()
+const execExpanded = ref(false)
+
+/** 助手显示名：当前选中的专家名优先，否则品牌名 */
+const agentDisplayName = computed(() => {
+  const id = (chatStore as any).currentAgentId
+  if (id) {
+    const agent = (chatStore as any).customAgents?.find?.((a: any) => a.id === id)
+    if (agent?.name) return agent.name
+  }
+  return '智知'
+})
+
+/** 状态文案：优先用后端记录的耗时（tokenUsage.durationMs），旧消息退化为只显示「已完成」 */
+const execStatusText = computed(() => {
+  const ms = Number((props.message as any)?.tokenUsage?.durationMs)
+  if (props.message.isStreaming) return '正在执行…'
+  if (Number.isFinite(ms) && ms > 0) {
+    const totalSec = Math.round(ms / 1000)
+    const txt = totalSec >= 60 ? `${Math.floor(totalSec / 60)}m${totalSec % 60}s` : `${totalSec}s`
+    return `已完成 ${txt}`
+  }
+  return '已完成'
+})
+
+/** 工具 → 动词 + 图标（对标 WorkBuddy 的 修改/创建/已读取 行样式） */
+function toolVerb(name: string): { verb: string; icon: any } {
+  const map: Record<string, { verb: string; icon: any }> = {
+    create_file: { verb: '创建', icon: Plus },
+    write_file: { verb: '编辑', icon: EditPenIcon },
+    append_file: { verb: '编辑', icon: EditPenIcon },
+    read_file: { verb: '已读取', icon: View },
+    list_files: { verb: '浏览目录', icon: Folder },
+    search_files: { verb: '搜索文件', icon: Search },
+    search_knowledge_base: { verb: '知识库检索', icon: Search },
+    search_codebase: { verb: '检索代码库', icon: Search },
+    web_search: { verb: '联网检索', icon: Search },
+    web_navigate: { verb: '访问网页', icon: Connection },
+    web_extract_text: { verb: '提取正文', icon: Document },
+    code_interpreter: { verb: '执行代码', icon: Cpu },
+    exec: { verb: '执行命令', icon: TerminalIcon },
+    run_shell: { verb: '运行命令', icon: TerminalIcon },
+    parse_document: { verb: '解析文档', icon: Document },
+    text_to_sql: { verb: '查询数据库', icon: Connection },
+  }
+  return map[name] || { verb: getToolDisplayName(name), icon: MagicStick }
+}
+
+/** 工具行的目标对象：文件工具取文件名，检索类取查询词，其余取工具名 */
+function toolTarget(tool: any): string {
+  const args = tool.arguments || {}
+  const raw = args.filename || args.path || args.query || args.question || args.url || args.command || ''
+  const text = String(raw)
+  if (!text) return getToolDisplayName(tool.name)
+  // 长路径截中段，保留文件名可读性
+  return text.length > 52 ? `${text.slice(0, 20)}…${text.slice(-28)}` : text
+}
+
+function toolTargetFull(tool: any): string {
+  const args = tool.arguments || {}
+  const raw = args.filename || args.path || args.query || args.question || args.url || args.command || ''
+  return String(raw) || getToolDisplayName(tool.name)
+}
+
 // 多Agent轨迹相关函数
 function getAgentClass(agent: string): string {
   const map: Record<string, string> = {
@@ -682,37 +765,41 @@ function toggleRunResult(runId: string) {
   animation: messageFadeIn 0.3s ease-out;
 }
 
+/* 用户消息：无头像，气泡靠右 */
 .message-item.user {
   margin-left: auto;
-  flex-direction: row-reverse;
+  flex-direction: row;
+  justify-content: flex-end;
+  max-width: 70%;
 }
 
-.avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+/* 助手：头像+名称在内容上方（WorkBuddy 式），内容纵向排布 */
+.message-item.assistant {
+  flex-direction: column;
+  gap: 6px;
+  max-width: 100%;
+}
+.assistant-head {
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  font-size: 16px;
+  gap: 8px;
 }
-
-.message-item.user .avatar {
-  background: var(--primary-gradient);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-}
-
-.message-item.assistant .avatar {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+.assistant-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .message-content {
   flex: 1;
   min-width: 0;
+}
+
+/* 助手内容去气泡壳（WorkBuddy 式平铺），仅用户保留气泡 */
+.message-item.assistant .message-bubble {
+  background: transparent;
+  border: none;
+  padding: 2px 0;
 }
 
 .message-bubble {
@@ -1177,6 +1264,80 @@ function toggleRunResult(runId: string) {
 
 .trace-text {
   word-break: break-word;
+}
+
+/* ================= 执行摘要块（已完成 Xs） ================= */
+.exec-block {
+  margin: 2px 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+.exec-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  transition: background 0.15s;
+}
+.exec-head:hover {
+  background: var(--bg-hover);
+}
+.exec-status {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.exec-count {
+  color: var(--text-placeholder);
+  font-size: 11.5px;
+}
+.exec-head .expand-icon {
+  margin-left: auto;
+}
+.exec-body {
+  padding: 4px 10px 10px;
+  border-top: 1px solid var(--border-light);
+  max-height: 340px;
+  overflow-y: auto;
+}
+/* 展开体内思考/工具行更紧凑 */
+.exec-body .thinking-block,
+.exec-body .tool-calls {
+  margin: 6px 0;
+  padding: 0 0 6px;
+  border-bottom: 1px dashed var(--border-light);
+}
+.exec-body .tool-call-header {
+  background: transparent;
+  padding: 5px 6px;
+}
+.exec-body .tool-call-header:hover {
+  background: var(--bg-hover);
+}
+.exec-body .tool-icon {
+  color: var(--text-secondary);
+}
+.tool-verb {
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+.tool-target {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
 }
 
 .tool-call-item {

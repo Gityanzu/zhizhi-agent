@@ -13,6 +13,8 @@ export interface ChatMessage {
   tokenUsage?: any;
   parentId?: string;
   branchId?: string;
+  /** 本轮执行耗时（毫秒），前端「已完成 Xs」展示用 */
+  durationMs?: number;
   /** 本轮产出的文件/链接（消息末尾文件卡片的数据源） */
   artifacts?: MessageArtifact[];
 }

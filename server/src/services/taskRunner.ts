@@ -122,6 +122,7 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
   }
 
   try {
+    const runStartMs = Date.now(); // 本轮执行耗时（消息元数据 durationMs，前端「已完成 Xs」展示用）
     // 把本轮产物 narrowing 到「总目录/chats/会话创建日期」。
     // 同一会话无论横跨多少天、后续何时再次打开修改，文件始终落在该日期目录。
     const sessionChatDir = await getSessionChatOutputDir(sessionId);
@@ -238,7 +239,9 @@ export async function runTaskInBackground(input: RunTaskInput): Promise<void> {
         if (notices.length) {
           full += full ? `\n\n${notices.map((n) => `> ${n}`).join('\n\n')}` : notices.map((n) => `> ${n}`).join('\n\n');
         }
-        await addMessage(sessionId, 'assistant', full, 'agent', { toolCalls, tokenUsage: usage, artifacts, branchId: input.branchId, parentId: input.userMessageId || input.editMessageId });
+        // durationMs 并入 tokenUsage JSON（messages 表无通用元数据列，tokenUsage 为 JSONB 可携带）
+        const usageWithDur: any = { ...(usage || {}), durationMs: Date.now() - runStartMs };
+        await addMessage(sessionId, 'assistant', full, 'agent', { toolCalls, tokenUsage: usageWithDur, artifacts, branchId: input.branchId, parentId: input.userMessageId || input.editMessageId });
         if (usage)
           recordUsage(sessionId, undefined, modelInfo.name, usage.promptTokens, usage.completionTokens, usage.totalTokens).catch(() => {});
         if (taskManager.isCancelled(taskId)) {

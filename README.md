@@ -27,8 +27,10 @@
 ## 项目概览
 
 - 🧠 **统一的知识库问答体验**：支持多个任务模式切换，满足常见问答、工具调用、复杂任务规划与多 Agent 协作场景。
-- ⚙️ **可扩展的工具与 Agent 能力**：内置 16+ 个工具（含 git 版本控制与代码库语义索引），支持自定义 Agent、自定义 API 工具、工作流编排与外部 MCP 接入。
-- 🖥️ **IDE 式代码工作台**：文件树浏览 + 代码查看 + 执行终端 + 对话（菜单"代码工作台"进入），适合 coding agent 工作流。
+- ⚙️ **可扩展的工具与 Agent 能力**：内置 16+ 个工具（含 git 版本控制与代码库语义索引），支持自定义 Agent、自定义 API 工具、工作流编排；**MCP 连接器**（stdio / Streamable HTTP）一键接入外部工具，桥接为 Agent 原生工具。
+- 🖥️ **三栏工作台**：左侧栏（会话/专家/技能/连接器，可收起）+ 中栏对话 + 右侧资源面板（文件树 + 各类文件预览 + 内置浏览器，双拖拽条调宽），产物卡片就地预览。
+- 🧩 **技能商店**：精选/分类/搜索的技能市场（联网 skill + 离线 skill），一键安装/卸载，支持表单创建与 SKILL.md 上传。
+- 📦 **产物按会话归档**：Agent 生成文件自动归档到 `用户目录/chats/会话创建日期/`，消息卡片与产物补登记保证不漏文件。
 - 🤖 **Plan 前置确认 + 并行子代理**：Plan 模式先生成计划、用户确认后再执行（HITL）；Multi 模式多子代理并发调度（上下文隔离），对齐 Claude Code / Qoder 的并行 agent 玩法。
 - 📚 **企业级知识库支持**：支持 PDF / Word / Markdown / TXT 多格式文档解析，支持知识库隔离、混合检索与 Rerank。
 - 📊 **可观测性与运营分析**：包含 Token 用量统计、会话统计、模型分析、调用日志、可观测性面板与审计能力。
@@ -70,8 +72,13 @@
 - `db_query` - 数据库自然语言查询
 
 ### 扩展能力
-- 🔌 **MCP 协议支持**：标准 JSON-RPC 2.0 接口，端点 `POST /mcp`，支持 7 个标准方法
-- 🎭 **Skill 系统**：5 个内置 Skill（编程助手/文档写作/研究分析/学习导师/通用助手），支持自动匹配和手动切换
+- 🔌 **MCP 双向支持**：
+  - **对外服务**：标准 JSON-RPC 2.0 端点 `POST /mcp`，支持 7 个标准方法
+  - **连接器管理**（`/mcp`）：接入外部 MCP 服务器（stdio 本地进程 / Streamable HTTP 远程端点），支持增删改、启停、探活与工具列表查看；已启用连接器的工具自动桥接为 Agent 工具（`mcp_<服务器>_<工具>`，默认走 HITL 审批），零依赖实现 MCP 客户端协议
+- 🎭 **Skill 系统 + 技能商店**（`/skills`）：
+  - 5 个内置 Skill + SKILL.md 文件库技能（对标 Claude Skills 机制，支持 references 渐进披露）
+  - 技能商店：18 个预置技能（联网/离线，7 大分类），一键安装/卸载、热加载免重启
+  - 自定义：表单创建技能或上传 SKILL.md（服务端解析 frontmatter）
 - 📝 **提示词模板管理**：5 个内置模板 + 自定义模板，可视化编辑，一键切换
 - 🧠 **自动记忆系统**：从对话中自动提取用户偏好和事实，跨会话复用
 - 📊 **Token 用量统计**：实时统计每次/会话/全局 Token 用量，支持按模型和工具维度分析
@@ -175,12 +182,15 @@ npm run dev
 
 | 路由 | 页面 | 说明 |
 |------|------|------|
-| `/chat` | 聊天主页 | 对话、模型切换、模式选择 |
+| `/chat` | 聊天主页（三栏工作台） | 对话、输入框「+」多级菜单（添加文件/模式/专家/技能/连接器）、右侧资源面板 |
+| `/skills` | 技能商店 | 精选/分类/搜索，技能安装/创建/上传 SKILL.md |
+| `/mcp` | 连接器（MCP） | MCP 服务器增删改、启停、探活、工具列表 |
 | `/knowledge` | 知识库 | 文档管理、记忆管理、提示词模板 |
 | `/agents` | Agent 市场 | 自定义 Agent、模板库、工具管理 |
 | `/workflow` | 工作流 | DAG 工作流编排器 |
 | `/analytics` | 数据分析 | Token 用量、使用统计 |
 | `/monitor` | 监控面板 | 可观测性、调用日志 |
+| `/code-workbench` | 代码工作台 | 文件树 + 代码/预览/内置浏览器 + 对话 |
 | `/settings` | 设置 | 用户资料、API Key、偏好设置 |
 | `/workspace` | 工作台 | 快捷入口与概览 |
 
@@ -280,6 +290,21 @@ GET  /api/skill/list       - 获取 Skill 列表
 GET  /api/skill/active     - 获取当前激活的 Skill
 POST /api/skill/switch     - 切换 Skill
 POST /api/skill/match      - 根据内容匹配 Skill
+POST /api/skill/reload     - 热加载 SKILL.md 文件库
+GET  /api/skill/market     - 技能市场（分类/精选/下载量/安装状态）
+POST /api/skill/install-file - 安装技能（市场/表单创建，生成 SKILL.md 并热加载）
+POST /api/skill/upload     - 上传 SKILL.md 安装（服务端解析 frontmatter）
+DELETE /api/skill/file/:id - 卸载文件技能
+```
+
+### MCP 连接器接口
+```
+GET    /api/mcp/servers          - 连接器列表
+POST   /api/mcp/servers          - 添加连接器（stdio/http，http URL 走 SSRF 校验）
+PUT    /api/mcp/servers/:id      - 更新连接器
+DELETE /api/mcp/servers/:id      - 删除连接器
+POST   /api/mcp/servers/:id/test - 探活（http: MCP initialize 握手；stdio: 命令存在性）
+GET    /api/mcp/servers/:id/tools - 查看连接器暴露的工具（桥接名映射）
 ```
 
 ### 用量统计接口
@@ -370,7 +395,8 @@ zhizhi-agent/
 │   │   │   ├── model.ts            # 模型管理
 │   │   │   ├── document.ts         # 文档管理
 │   │   │   ├── session.ts          # 会话管理（含模型/模式绑定）
-│   │   │   ├── skill.ts            # Skill 管理
+│   │   │   ├── skill.ts            # Skill 管理 + 技能市场/安装/上传
+│   │   │   ├── mcp.ts              # MCP 连接器管理（CRUD/探活/工具列表，SSRF 校验）
 │   │   │   ├── usage.ts            # 用量统计
 │   │   │   ├── stats.ts            # 可观测性统计
 │   │   │   ├── memory.ts           # 记忆管理
@@ -412,7 +438,12 @@ zhizhi-agent/
 │   │   │   ├── userSettings.ts     # 用户设置管理
 │   │   │   ├── taskManager.ts      # 异步任务状态机（HITL 挂起/恢复、取消、SSE 事件分发）
 │   │   │   ├── taskRunner.ts       # 任务后台执行编排（agent/plan/multi；编辑/分支/模型参数）
-│   │   │   └── taskStore.ts        # 任务存储（内存为主，元数据持久化 data/tasks.json）
+│   │   │   ├── taskStore.ts        # 任务存储（内存为主，元数据持久化 data/tasks.json）
+│   │   │   ├── agentOutput.ts      # 输出目录解析（用户目录/chats/会话创建日期）
+│   │   │   ├── mcpStore.ts         # MCP 连接器配置存储（JSON 原子写入）
+│   │   │   ├── mcpBridge.ts        # MCP 客户端与工具桥接（stdio/Streamable HTTP，零依赖）
+│   │   │   ├── permissionMode.ts   # 权限模式（sandbox/fullAccess，请求级隔离）
+│   │   │   └── filePermission.ts   # 文件访问权限判定（敏感路径/工作区/审批）
 │   │   ├── mcp/                    # MCP 协议
 │   │   │   └── server.ts           # MCP JSON-RPC 2.0 服务器
 │   │   └── skills/                 # Skill 系统
@@ -435,18 +466,23 @@ zhizhi-agent/
 │   │   ├── router/                 # 路由配置
 │   │   │   └── index.ts            # 9个路由，懒加载，scrollBehavior
 │   │   ├── views/                  # 页面级组件
-│   │   │   ├── ChatView.vue        # 聊天主页
+│   │   │   ├── ChatView.vue        # 聊天主页（三栏工作台布局）
+│   │   │   ├── SkillsView.vue      # 技能商店（精选/分类/安装/创建/上传）
+│   │   │   ├── McpView.vue         # 连接器 MCP 管理页
 │   │   │   ├── KnowledgeView.vue   # 知识库页面
 │   │   │   ├── AgentsView.vue      # Agent 市场页面
 │   │   │   ├── WorkflowView.vue    # 工作流页面
 │   │   │   ├── AnalyticsView.vue   # 数据分析页面
 │   │   │   ├── MonitorView.vue     # 监控页面
+│   │   │   ├── CodeWorkbenchView.vue # 代码工作台（文件树+预览+浏览器+对话）
 │   │   │   ├── SettingsView.vue    # 设置页面
 │   │   │   └── WorkspaceView.vue   # 工作台页面
 │   │   ├── components/             # 组件（按模块拆分）
 │   │   │   ├── chat/               # 聊天相关
-│   │   │   │   ├── ChatArea.vue    # 聊天区域（输入工具栏集成）
+│   │   │   │   ├── ChatArea.vue    # 聊天区域（"+"多级菜单/产物汇总/搜索）
 │   │   │   │   ├── MessageItem.vue # 消息项（工具调用/Plan/思考过程）
+│   │   │   │   ├── MessageArtifacts.vue # 产物卡片（两列网格/折叠展开，就地预览）
+│   │   │   │   ├── AllArtifactsDrawer.vue # 会话所有产物抽屉
 │   │   │   │   └── ChatInputToolbar.vue # 输入工具栏（备用）
 │   │   │   ├── agent/              # Agent 相关
 │   │   │   │   ├── AgentManager.vue
@@ -465,6 +501,11 @@ zhizhi-agent/
 │   │   │   │   ├── UserSettings.vue
 │   │   │   │   ├── ApiKeyManager.vue
 │   │   │   │   └── DBConnectionManager.vue
+│   │   │   ├── workbench/          # 工作台相关
+│   │   │   │   ├── ResourcePanel.vue   # 右侧资源面板（文件树+预览+内置浏览器）
+│   │   │   │   ├── FileTree.vue
+│   │   │   │   ├── FilePreview.vue     # 各类文件预览（md/docx/pdf/图片…）
+│   │   │   │   └── BuiltInBrowser.vue  # 内置浏览器（原生 webview/iframe 双模式）
 │   │   │   └── common/             # 通用组件
 │   │   │       ├── Sidebar.vue     # 侧边栏（页面导航+会话列表）
 │   │   │       ├── DBQueryPanel.vue
@@ -478,7 +519,8 @@ zhizhi-agent/
 │   │   │   ├── request.ts          # 请求封装
 │   │   │   ├── chat.ts             # 对话 API
 │   │   │   ├── model.ts            # 模型 API
-│   │   │   ├── agent.ts            # Agent API
+│   │   │   ├── agent.ts            # Agent/Skill API
+│   │   │   ├── mcp.ts              # MCP 连接器 API
 │   │   │   ├── knowledge.ts        # 知识库 API
 │   │   │   ├── stats.ts            # 统计 API
 │   │   │   ├── common.ts           # 通用 API
@@ -499,7 +541,9 @@ zhizhi-agent/
 │   │   │   └── index.css           # 统一入口
 │   │   ├── composables/            # 组合式函数
 │   │   │   ├── useIsMobile.ts      # 移动端检测
-│   │   │   └── useSpeech.ts        # 语音识别+合成
+│   │   │   ├── useSpeech.ts        # 语音识别+合成
+│   │   │   ├── useBrowserView.ts   # 桌面端原生浏览器视图
+│   │   │   └── usePreviewWindow.ts # 独立预览窗口（多屏）
 │   │   └── data/                   # 静态数据
 │   │       └── agentTemplates.ts   # Agent 模板数据
 │   ├── package.json

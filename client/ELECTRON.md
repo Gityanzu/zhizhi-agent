@@ -31,18 +31,25 @@ client/
 │  ├─ ipc.cjs             IPC 处理器注册中心（safeHandler 统一包装）
 │  ├─ hostServer.cjs      主进程内置静态托管 + /api 反向代理（含 SSE 透传）
 │  ├─ backend.cjs         本地后端子进程托管（启动 / 健康检查 / 回收）
+│  ├─ browserView.cjs     原生 BrowserView 内置浏览器（工作台右侧栏/产物预览复用）
+│  ├─ previewWindow.cjs   独立预览窗口（多屏拖出：文件预览 / 网页）
+│  ├─ menu.cjs            应用菜单（编辑/窗口/帮助）
 │  ├─ updater.cjs         自动更新（electron-updater 全事件 → IPC 推送）
 │  ├─ tray.cjs            系统托盘 + 内存绘制图标
 │  └─ paths.cjs           跨平台路径与环境解析（安装目录 vs 用户数据目录）
 ├─ scripts/
-│  └─ update-server.cjs   本地 generic 更新源，用于演示整条更新链路
+│  ├─ update-server.cjs   本地 generic 更新源，用于演示整条更新链路
+│  └─ check-api-usage.mjs 前端 API 使用情况检查脚本
 ├─ src/
 │  ├─ types/desktop.ts    window.desktop 的类型定义 + global 声明
-│  └─ composables/useDesktop.ts  渲染层统一入口：探测、解包、订阅、退订
+│  └─ composables/        useDesktop（探测/订阅）+ useBrowserView（原生浏览器）
+│                         + usePreviewWindow（独立预览窗口）
 ├─ electron-builder.yml   三平台打包配置
 ├─ dev-app-update.yml     开发态跑更新链路用的配置
 └─ .gitignore
 ```
+
+> 渲染层侧新增的工作台能力：三栏布局（`ChatView.vue`）、右侧资源面板（`components/workbench/ResourcePanel.vue`：文件树 + 各类文件预览 + 内置浏览器，产物卡片就地打开）、独立预览窗口（`views/PreviewWindowView.vue`）。
 
 > `package.json` 有改动：加了 `main` 字段、4 个 electron 脚本、3 个依赖。
 > 原始文件已备份为 `package.json.bak-before-electron`，也可以用 `git checkout client/package.json` 还原。

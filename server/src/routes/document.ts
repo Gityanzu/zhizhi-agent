@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { config } from '../config';
-import { processDocument, getAllDocuments, deleteDocument } from '../services/document';
+import { processDocument, getAllDocuments, deleteDocument, reindexAllDocuments } from '../services/document';
 import { getDocumentCount } from '../services/vectorStore';
 import {
   createCollection,
@@ -213,6 +213,18 @@ router.delete('/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('删除文档失败:', error);
     res.status(500).json({ error: '删除文档失败' });
+  }
+});
+
+// 重建全量索引（更换 embedding 模型/索引疑似损坏后的一键修复；耗时较长，注意 embedding 额度）
+router.post('/reindex', async (_req: Request, res: Response) => {
+  try {
+    const result = await reindexAllDocuments();
+    console.log(`[reindex] 重建完成: 总数=${result.total} 成功=${result.rebuilt} 失败=${result.failed} 跳过=${result.skipped}`);
+    res.json(result);
+  } catch (error) {
+    console.error('重建索引失败:', error);
+    res.status(500).json({ error: '重建索引失败' });
   }
 });
 

@@ -40,7 +40,7 @@ export const config = {
   },
   
   chroma: {
-    collectionName: process.env.CHROMA_COLLECTION_NAME || 'zhizhi_knowledge_base',
+    // 注：目录名沿用历史命名（并非 ChromaDB，实为内置向量存储的持久化目录）
     // 桌面端由 Electron 注入 ZHI_USER_DATA：用户数据落 userData 目录，与安装目录分离，升级不丢数据
     persistDirectory: process.env.ZHI_USER_DATA
       ? path.join(process.env.ZHI_USER_DATA, 'data', 'chroma')

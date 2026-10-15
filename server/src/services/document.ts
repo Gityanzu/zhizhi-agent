@@ -3,7 +3,7 @@ import path from 'path';
 import mammoth from 'mammoth';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { config } from '../config';
-import { addDocuments, deleteDocumentsByDocId } from './vectorStore';
+import { addDocuments, deleteDocumentsByDocId, getVectorStore } from './vectorStore';
 import { DocumentInfo } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { usePostgres, query } from '../db';
@@ -231,4 +231,67 @@ export async function deleteDocument(docId: string): Promise<boolean> {
     saveToFile();
   }
   return true;
+}
+
+/**
+ * 重建全量索引：逐个文档重新解析 → 分块 → 向量化（按 docId 先删旧向量再入库）。
+ * 用途：更换 embedding 模型/维度后、索引疑似损坏后的一键修复。
+ * 注意：会重新消耗 embedding API 额度（内容缓存可命中历史已嵌入内容）。
+ */
+export async function reindexAllDocuments(): Promise<{
+  total: number; rebuilt: number; failed: number; skipped: number;
+  errors: Array<{ docId: string; name: string; error: string }>;
+}> {
+  const docs = await getAllDocuments();
+  const result = { total: docs.length, rebuilt: 0, failed: 0, skipped: 0, errors: [] as Array<{ docId: string; name: string; error: string }> };
+
+  for (const doc of docs) {
+    // 源文件路径：PG 记录了 file_path；JSON 模式按上传命名规则推断
+    let filePath = '';
+    if (usePostgres) {
+      const r = await query('SELECT file_path FROM documents WHERE id = $1', [doc.id]);
+      filePath = r.rows[0]?.file_path || '';
+    }
+    if (!filePath) {
+      const guess = path.join(config.upload.dir, `${doc.id}_${doc.name}`);
+      filePath = fs.existsSync(guess) ? guess : '';
+    }
+
+    if (!filePath || !fs.existsSync(filePath)) {
+      result.skipped++;
+      result.errors.push({ docId: doc.id, name: doc.name, error: '源文件已不存在，无法重建（建议删除该文档后重新上传）' });
+      continue;
+    }
+
+    try {
+      const text = await parseFile(filePath, '');
+      const chunks = await splitText(text);
+      // 先删旧向量再入库（按 docId 精确）
+      await deleteDocumentsByDocId(doc.id);
+      const metadatas = chunks.map((_, index) => ({
+        source: doc.name,
+        docId: doc.id,
+        chunkIndex: index,
+        uploadTime: doc.uploadTime,
+        totalChunks: chunks.length,
+        ...(doc.collectionId ? { collectionId: doc.collectionId } : {}),
+      }));
+      await addDocuments(chunks, metadatas);
+      // 更新块数
+      if (usePostgres) {
+        await query('UPDATE documents SET chunk_count = $1 WHERE id = $2', [chunks.length, doc.id]);
+      } else {
+        const stored = documentStore.get(doc.id);
+        if (stored) { stored.chunkCount = chunks.length; saveToFile(); }
+      }
+      result.rebuilt++;
+    } catch (e: any) {
+      result.failed++;
+      result.errors.push({ docId: doc.id, name: doc.name, error: e?.message || String(e) });
+    }
+  }
+
+  // 确保向量库持久化
+  getVectorStore();
+  return result;
 }

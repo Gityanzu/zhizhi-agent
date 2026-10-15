@@ -246,17 +246,27 @@ export async function initDatabase(): Promise<boolean> {
     }
     
     if (usePgVector) {
+      // 维度配置化：更换 embedding 模型（不同维度）无需改代码，改 EMBEDDING_DIM 即可。
+      // 已有表按旧维度建过时不会自动改（vector 列维度不可变），需迁移：重建表 + 重嵌入。
+      const dim = parseInt(process.env.EMBEDDING_DIM || '1536', 10);
       await client.query(`
         CREATE TABLE IF NOT EXISTS vectors (
           id UUID PRIMARY KEY,
           content TEXT NOT NULL,
-          embedding vector(1536),
+          embedding vector(${dim}),
           metadata JSONB DEFAULT '{}',
           created_at TIMESTAMP DEFAULT NOW()
         )
       `);
-      await client.query(`CREATE INDEX IF NOT EXISTS idx_vectors_embedding ON vectors USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`);
-      console.log('向量存储：使用 pgvector (1536维, IVFFlat索引)');
+      // HNSW：查询性能与召回率均优于 IVFFlat，且无需按数据量调 lists。
+      // 老版本 pgvector(<0.5) 不支持 HNSW 时回退 ivfflat。
+      try {
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_vectors_embedding ON vectors USING hnsw (embedding vector_cosine_ops)`);
+        console.log(`向量存储：使用 pgvector (${dim}维, HNSW索引)`);
+      } catch {
+        await client.query(`CREATE INDEX IF NOT EXISTS idx_vectors_embedding ON vectors USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)`);
+        console.log(`向量存储：使用 pgvector (${dim}维, IVFFlat索引, pgvector 版本过旧已回退)`);
+      }
     } else {
       await client.query(`
         CREATE TABLE IF NOT EXISTS vectors (

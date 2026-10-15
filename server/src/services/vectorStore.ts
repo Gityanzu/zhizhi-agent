@@ -6,6 +6,7 @@ import { config } from '../config';
 import { RetrievalResult } from '../types';
 import { query, usePostgres } from '../db';
 import { rerankDocuments } from './rerank';
+import { lookupBatch as lookupEmbeddingCache, storeBatch as storeEmbeddingCache } from './embeddingCache';
 
 // ==================== 分词与 BM25（纯内存，无外部依赖） ====================
 
@@ -229,13 +230,21 @@ class LocalVectorStore {
     this.checkGuardrails(texts.length, docId);
     const embeddings = getEmbeddings();
 
-    // 1. 分批向量化：每批一次 API 调用 + 指数退避重试；全部成功才继续
+    // 1. 分批向量化：先查内容缓存（重传/重建索引零重复计费），仅缺失部分调 API；
+    //    每批一次调用 + 指数退避重试；全部成功才继续
     const batchSize = Math.max(1, config.rag.embedBatchSize);
-    const vectors: number[][] = [];
-    for (const batch of chunkArray(texts, batchSize)) {
-      const batchVectors = await embedBatchWithRetry(embeddings, batch);
-      vectors.push(...batchVectors);
+    const model = config.llm.embeddingModelName;
+    const { hits, misses } = lookupEmbeddingCache(model, texts);
+    let missVectors: number[][] = [];
+    if (misses.length > 0) {
+      for (const batch of chunkArray(misses, batchSize)) {
+        const batchTexts = batch.map((i) => texts[i]);
+        const batchVectors = await embedBatchWithRetry(embeddings, batchTexts);
+        batch.forEach((idx, j) => { hits.set(idx, batchVectors[j]); });
+        storeEmbeddingCache(model, batchTexts, batchVectors);
+      }
     }
+    const vectors: number[][] = texts.map((_, i) => hits.get(i)!);
 
     const items: VectorData[] = texts.map((t, i) => ({
       id: uuidv4(),

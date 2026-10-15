@@ -1,50 +1,80 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="设置"
-    width="640px"
+    width="820px"
     :close-on-click-modal="false"
     class="settings-dialog"
   >
-    <el-tabs v-model="activeTab" class="settings-tabs">
+    <template #header>
+      <div class="settings-dialog-head">
+        <div class="sd-badge"><el-icon :size="18"><Setting /></el-icon></div>
+        <div class="sd-titles">
+          <div class="sd-title">设置</div>
+          <div class="sd-sub">管理账户资料、使用偏好与模型密钥</div>
+        </div>
+      </div>
+    </template>
+
+    <div class="settings-layout">
+      <!-- 左侧导航 -->
+      <aside class="settings-nav">
+        <button
+          v-for="nav in settingsNav"
+          :key="nav.key"
+          class="settings-nav-item"
+          :class="{ active: activeTab === nav.key }"
+          @click="activeTab = nav.key"
+        >
+          <el-icon :size="16"><component :is="nav.icon" /></el-icon>
+          <span>{{ nav.label }}</span>
+        </button>
+      </aside>
+
+      <!-- 右侧内容 -->
+      <div class="settings-body">
       <!-- 基本资料 -->
-      <el-tab-pane label="基本资料" name="profile">
+      <section v-show="activeTab === 'profile'" class="settings-page">
         <div class="settings-section">
-          <div class="form-item">
-            <label>头像</label>
-            <div class="avatar-upload">
-              <el-tooltip :content="profile.avatar ? '点击更换头像' : '点击上传头像'" placement="top">
-                <div
-                  class="avatar-preview avatar-clickable"
-                  :class="{ uploading: uploadingAvatar }"
-                  v-loading="uploadingAvatar"
-                  @click="avatarInputRef?.click()"
-                >
-                  <img v-if="profile.avatar" :src="profile.avatar" alt="头像" />
-                  <el-icon v-else :size="32"><User /></el-icon>
-                </div>
-              </el-tooltip>
-              <div class="avatar-ops">
-                <input
-                  ref="avatarInputRef"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif"
-                  style="display: none"
-                  @change="onAvatarFileChange"
-                />
-                <el-button size="small" :icon="User" :loading="uploadingAvatar" @click="avatarInputRef?.click()">上传头像</el-button>
-                <el-button v-if="profile.avatar" size="small" text type="danger" @click="handleRemoveAvatar">清除头像</el-button>
-                <div class="avatar-hint">支持 jpg/png/webp/gif，不超过 5MB</div>
+          <!-- 身份卡：头像 + 用户名一目了然 -->
+          <div class="identity-card">
+            <el-tooltip :content="profile.avatar ? '点击更换头像' : '点击上传头像'" placement="top">
+              <div
+                class="avatar-preview avatar-clickable"
+                :class="{ uploading: uploadingAvatar }"
+                v-loading="uploadingAvatar"
+                @click="avatarInputRef?.click()"
+              >
+                <img v-if="profile.avatar" :src="profile.avatar" alt="头像" />
+                <el-icon v-else :size="30"><User /></el-icon>
               </div>
+            </el-tooltip>
+            <div class="identity-meta">
+              <div class="identity-name">{{ profile.nickname || '未设置昵称' }}</div>
+              <div class="identity-sub">@{{ authStore.user?.username || '—' }}</div>
+            </div>
+            <div class="identity-ops">
+              <input
+                ref="avatarInputRef"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                style="display: none"
+                @change="onAvatarFileChange"
+              />
+              <el-button size="small" :icon="User" round :loading="uploadingAvatar" @click="avatarInputRef?.click()">更换头像</el-button>
+              <el-button v-if="profile.avatar" size="small" round text type="danger" @click="handleRemoveAvatar">清除</el-button>
+              <div class="avatar-hint">jpg/png/webp/gif · ≤5MB</div>
             </div>
           </div>
-          <div class="form-item">
-            <label>昵称</label>
-            <el-input v-model="profile.nickname" placeholder="请输入昵称" maxlength="50" />
-          </div>
-          <div class="form-item">
-            <label>邮箱</label>
-            <el-input v-model="profile.email" placeholder="用于找回密码与通知" />
+
+          <div class="form-grid">
+            <div class="form-item">
+              <label>昵称</label>
+              <el-input v-model="profile.nickname" placeholder="请输入昵称" maxlength="50" />
+            </div>
+            <div class="form-item">
+              <label>邮箱</label>
+              <el-input v-model="profile.email" placeholder="用于找回密码与通知" />
+            </div>
           </div>
           <div class="form-item">
             <label>个人简介</label>
@@ -61,28 +91,39 @@
             <label>角色/职位</label>
             <el-input v-model="profile.role" placeholder="请输入角色或职位" />
           </div>
-          <el-button type="primary" @click="saveProfile" :loading="saving">保存资料</el-button>
+          <div class="save-row">
+            <el-button type="primary" round @click="saveProfile" :loading="saving">保存资料</el-button>
+          </div>
         </div>
-      </el-tab-pane>
+      </section>
 
       <!-- 偏好设置 -->
-      <el-tab-pane label="偏好设置" name="preferences">
+      <section v-show="activeTab === 'preferences'" class="settings-page">
         <div class="settings-section">
-          <div class="form-item">
-            <label>主题</label>
+          <div class="pref-row">
+            <div class="pref-label">
+              <span class="pref-name">主题</span>
+              <span class="pref-desc">界面配色，深浅两套</span>
+            </div>
             <el-radio-group v-model="preferences.theme">
               <el-radio-button value="light">浅色</el-radio-button>
               <el-radio-button value="dark">深色</el-radio-button>
             </el-radio-group>
           </div>
-          <div class="form-item">
-            <label>默认模型</label>
-            <el-select v-model="preferences.defaultModel" style="width: 100%">
+          <div class="pref-row">
+            <div class="pref-label">
+              <span class="pref-name">默认模型</span>
+              <span class="pref-desc">新会话使用的模型</span>
+            </div>
+            <el-select v-model="preferences.defaultModel" style="width: 220px">
               <el-option v-for="m in models" :key="m" :label="m" :value="m" />
             </el-select>
           </div>
-          <div class="form-item">
-            <label>默认模式</label>
+          <div class="pref-row">
+            <div class="pref-label">
+              <span class="pref-name">默认模式</span>
+              <span class="pref-desc">新会话的起始任务模式</span>
+            </div>
             <el-radio-group v-model="preferences.defaultMode">
               <el-radio-button value="qa">问答</el-radio-button>
               <el-radio-button value="agent">Agent</el-radio-button>
@@ -90,37 +131,45 @@
               <el-radio-button value="multi">多Agent</el-radio-button>
             </el-radio-group>
           </div>
-          <div class="form-item">
-            <label>语音输入</label>
-            <el-switch v-model="preferences.voiceEnabled" active-text="开启" inactive-text="关闭" />
-          </div>
-          <div class="form-item">
-            <label>语音朗读回答</label>
-            <el-switch v-model="preferences.ttsEnabled" active-text="开启" inactive-text="关闭" />
-          </div>
-          <div class="form-item" v-if="isDesktop">
-            <label>默认输出目录</label>
-            <div style="display:flex; gap:8px; align-items:center; width:100%">
-              <el-input v-model="preferences.agentOutputDir" placeholder="留空则使用默认目录（用户数据下 outputs）" style="flex:1" />
-              <el-button @click="chooseOutputDir">选择目录</el-button>
+          <div class="pref-row">
+            <div class="pref-label">
+              <span class="pref-name">语音输入</span>
+              <span class="pref-desc">在输入框使用麦克风语音转文字</span>
             </div>
-            <div style="color:#909399; font-size:12px; margin-top:4px">Agent 生成文件（代码/文档等）的默认落点；读写本机文件时会弹窗请你确认。</div>
+            <el-switch v-model="preferences.voiceEnabled" />
           </div>
-          <div class="form-item">
-            <label>Agent 权限</label>
-            <!-- 与输入框工具栏是同一个组件、同一份状态：权限只有一个真相来源 -->
+          <div class="pref-row">
+            <div class="pref-label">
+              <span class="pref-name">语音朗读回答</span>
+              <span class="pref-desc">收到 AI 回答后自动朗读</span>
+            </div>
+            <el-switch v-model="preferences.ttsEnabled" />
+          </div>
+          <div class="pref-row" v-if="isDesktop">
+            <div class="pref-label">
+              <span class="pref-name">默认输出目录</span>
+              <span class="pref-desc">Agent 生成文件的默认落点；读写本机文件时会弹窗确认</span>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center; width:260px">
+              <el-input v-model="preferences.agentOutputDir" placeholder="留空使用默认目录" size="small" />
+              <el-button size="small" @click="chooseOutputDir">选择</el-button>
+            </div>
+          </div>
+          <div class="pref-row">
+            <div class="pref-label">
+              <span class="pref-name">Agent 权限</span>
+              <span class="pref-desc">「允许全部权限」后读写本机文件、执行命令不再逐次确认（敏感文件仍拒绝）；仅对当前账号生效，切换即时保存</span>
+            </div>
             <PermissionModeSelect />
-            <div style="color:#909399; font-size:12px; margin-top:4px">
-              选择「允许全部权限」后 Agent 读写本机文件、执行命令不再逐次确认；凭据/密钥等敏感文件仍会拒绝访问。
-              该设置只对当前账号生效，切换即时保存。
-            </div>
           </div>
-          <el-button type="primary" @click="savePreferences" :loading="saving">保存偏好</el-button>
+          <div class="save-row">
+            <el-button type="primary" round @click="savePreferences" :loading="saving">保存偏好</el-button>
+          </div>
         </div>
-      </el-tab-pane>
+      </section>
 
       <!-- API Key 管理 -->
-      <el-tab-pane label="API Key" name="apikeys">
+      <section v-show="activeTab === 'apikeys'" class="settings-page">
         <div class="settings-section">
           <!-- 未登录提示 -->
           <div v-if="!authStore.isAuthenticated" class="login-prompt">
@@ -180,10 +229,10 @@
             <el-empty v-else description="暂无API Key，添加后将优先使用您的个人Key" :image-size="60" />
           </template>
         </div>
-      </el-tab-pane>
+      </section>
 
       <!-- 数据管理 -->
-      <el-tab-pane label="数据管理" name="data">
+      <section v-show="activeTab === 'data'" class="settings-page">
         <div class="settings-section">
           <div class="data-card">
             <div class="data-info">
@@ -209,8 +258,9 @@
             </div>
           </div>
         </div>
-      </el-tab-pane>
-    </el-tabs>
+      </section>
+      </div>
+    </div>
   </el-dialog>
 </template>
 
@@ -218,7 +268,7 @@
 import { ref, reactive, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { User, Download, Warning, Cpu } from '@element-plus/icons-vue';
+import { User, Download, Warning, Cpu, Setting, Key } from '@element-plus/icons-vue';
 import { useAuthStore } from '../../stores/auth';
 import { uploadAvatar, removeAvatar as removeAvatarApi, updateProfile as authUpdateProfile } from '../../api/auth';
 import { getUserApiKeys, addUserApiKey, deleteUserApiKey, setDefaultApiKey, getActiveApiKey, getProviderOptions } from '../../api/userApiKey';
@@ -243,6 +293,14 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'saved'): void }>();
 
 const activeTab = ref(props.defaultTab || 'profile');
 const visible = ref(true);
+
+// 设置弹窗左侧导航
+const settingsNav = [
+  { key: 'profile', label: '基本资料', icon: User },
+  { key: 'preferences', label: '偏好设置', icon: Setting },
+  { key: 'apikeys', label: 'API Key', icon: Key },
+  { key: 'data', label: '数据管理', icon: Download },
+];
 const saving = ref(false);
 const exporting = ref(false);
 const importing = ref(false);
@@ -577,30 +635,214 @@ watch(visible, v => { if (v) loadSettings(); });
 </script>
 
 <style scoped>
+/* ==================== 弹窗外壳 ==================== */
+.settings-dialog :deep(.el-dialog) {
+  border-radius: 16px;
+  overflow: hidden;
+}
+.settings-dialog :deep(.el-dialog__header) {
+  padding: 18px 22px 14px;
+  margin: 0;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
 .settings-dialog :deep(.el-dialog__body) {
-  padding-top: 0;
+  padding: 0;
+}
+.settings-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sd-badge {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--primary-gradient, var(--primary));
+  color: #fff;
+  flex-shrink: 0;
+}
+.sd-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+.sd-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
-.settings-tabs :deep(.el-tab-pane) {
-  padding-top: 16px;
+/* ==================== 左导航 + 右内容 ==================== */
+.settings-layout {
+  display: flex;
+  min-height: 420px;
+  max-height: 66vh;
+}
+.settings-nav {
+  width: 168px;
+  flex-shrink: 0;
+  padding: 12px 10px;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+.settings-nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.settings-nav-item.active {
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 600;
+}
+.settings-body {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+}
+.settings-page {
+  padding: 20px 22px;
 }
 
+/* ==================== 页面通用 ==================== */
 .settings-section {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
-
 .form-item {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+}
+.form-item label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.save-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border-color);
 }
 
-.form-item label {
+/* 偏好行：左说明右控件 */
+.pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.pref-row:last-of-type {
+  border-bottom: none;
+}
+.pref-label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.pref-name {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.pref-desc {
+  font-size: 11.5px;
   color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* ==================== 身份卡 ==================== */
+.identity-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+}
+.identity-meta {
+  flex: 1;
+  min-width: 0;
+}
+.identity-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.identity-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.identity-ops {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+}
+
+/* ==================== 旧结构在新区块内的覆盖（后置高优先级选择器） ==================== */
+.settings-page .avatar-preview,
+.settings-page .avatar-placeholder {
+  width: 60px;
+  height: 60px;
+  border: 2px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+.settings-body .api-key-form {
+  padding: 12px;
+  border: 1px dashed var(--border-color);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+.settings-body .api-key-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+.settings-body .data-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  transition: border-color 0.15s;
+}
+.settings-body .data-card:hover {
+  border-color: var(--primary);
+}
+.settings-body .login-prompt {
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
 }
 
 .avatar-upload {

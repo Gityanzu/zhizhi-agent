@@ -13,7 +13,7 @@ import {
   codeRoutes, agentsRoutes, customToolsRoutes, workflowsRoutes, dbConnectionsRoutes,
   shareRoutes, importRoutes, apiKeysRoutes, externalApiRoutes, userRoutes,
   authRoutes, userApiKeysRoutes, agentMarketRoutes, ratingRoutes,
-  analyticsRoutes,
+  analyticsRoutes, mcpRoutes,
   taskRoutes,
 } from './routes';
 import commentRoutes from './routes/comment';
@@ -188,6 +188,7 @@ app.use('/api/v1', externalApiRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/user-api-keys', userApiKeysRoutes);
+app.use('/api/mcp', mcpRoutes);
 app.use('/api/agent-market', agentMarketRoutes);
 app.use('/api/agent-market/ratings', ratingRoutes);
 app.use('/api/agent-market/comments', commentRoutes);
@@ -274,7 +275,8 @@ async function startServer() {
       console.log('PostgreSQL 存储已启用');
       await initBuiltinTemplates();
       console.log('内置提示词模板已初始化');
-      // 恢复用户持久化的 Agent 输出目录（桌面端"默认生成目录"设置），重启后继续生效
+      // 恢复「全局默认」的 Agent 输出目录（未登录 / 无请求上下文时的兜底）。
+      // 登录用户各自的目录存在 user_output_preferences，由请求上下文按用户解析，不走这里。
       try {
         const settings = await getSettings();
         const dir = (settings.preferences as any)?.agentOutputDir;

@@ -102,6 +102,7 @@ function mapMessageRow(row: any): ChatMessage {
     tokenUsage: row.token_usage,
     parentId: row.parent_id || undefined,
     branchId: row.branch_id || undefined,
+    artifacts: row.artifacts || [],
   };
 }
 
@@ -174,14 +175,14 @@ export async function getSessionMessages(sessionId: string, branchId?: string): 
     let result;
     if (targetBranch) {
       result = await query(
-        `SELECT id, role, content, mode, created_at, tool_calls, sources, thinking, plan, agent_trace, token_usage, parent_id, branch_id
+        `SELECT id, role, content, mode, created_at, tool_calls, sources, thinking, plan, agent_trace, token_usage, parent_id, branch_id, artifacts
          FROM messages WHERE session_id = $1 AND branch_id = $2 ORDER BY created_at ASC, id ASC`,
         [sessionId, targetBranch]
       );
     } else {
       // 默认分支：branch_id 为 NULL 的消息
       result = await query(
-        `SELECT id, role, content, mode, created_at, tool_calls, sources, thinking, plan, agent_trace, token_usage, parent_id, branch_id
+        `SELECT id, role, content, mode, created_at, tool_calls, sources, thinking, plan, agent_trace, token_usage, parent_id, branch_id, artifacts
          FROM messages WHERE session_id = $1 AND branch_id IS NULL ORDER BY created_at ASC, id ASC`,
         [sessionId]
       );
@@ -257,6 +258,7 @@ export async function addMessage(
     tokenUsage?: any;
     parentId?: string;
     branchId?: string;
+    artifacts?: any[];
   }
 ): Promise<string> {
   const messageId = uuidv4();
@@ -264,8 +266,8 @@ export async function addMessage(
 
   if (usePostgres) {
     await query(
-      `INSERT INTO messages (id, session_id, role, content, mode, created_at, tool_calls, sources, thinking, plan, agent_trace, token_usage, parent_id, branch_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      `INSERT INTO messages (id, session_id, role, content, mode, created_at, tool_calls, sources, thinking, plan, agent_trace, token_usage, parent_id, branch_id, artifacts)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
       [
         messageId, sessionId, role, content, mode || null, now,
         extra?.toolCalls ? JSON.stringify(extra.toolCalls) : '[]',
@@ -276,6 +278,7 @@ export async function addMessage(
         extra?.tokenUsage ? JSON.stringify(extra.tokenUsage) : null,
         safeUuid(extra?.parentId),
         safeUuid(extra?.branchId),
+        extra?.artifacts ? JSON.stringify(extra.artifacts) : '[]',
       ]
     );
     // 更新会话的 message_count 和 updated_at
@@ -311,6 +314,7 @@ export async function addMessage(
         ...(extra?.tokenUsage ? { tokenUsage: extra.tokenUsage } : {}),
         ...(extra?.parentId ? { parentId: extra.parentId } : {}),
         ...(extra?.branchId ? { branchId: extra.branchId } : {}),
+        ...(extra?.artifacts ? { artifacts: extra.artifacts } : {}),
       };
       session.messages.push(msg);
       session.info.messageCount = session.messages.length;

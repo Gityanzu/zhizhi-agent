@@ -130,8 +130,8 @@ export function parseUserAgent(userAgent: string): UserAgentInfo {
 export async function getIpLocation(ipAddress: string): Promise<string> {
   try {
     const response = await fetch(`https://ipapi.co/${ipAddress}/city/`);
-    const data = await response.json();
-    return `${data.city}, ${data.country_name}`;
+    const data = await response.json() as any;
+    return `${data?.city}, ${data?.country_name}`;
   } catch {
     return '未知';
   }
@@ -243,7 +243,7 @@ export async function getLoginLogsByTimeRange(
     WHERE created_at >= $1 AND created_at <= $2
   `;
 
-  const params = [startDate, endDate];
+  const params: any[] = [startDate, endDate];
   let paramIndex = 3;
 
   if (status) {

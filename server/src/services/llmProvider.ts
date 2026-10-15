@@ -1,6 +1,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { config } from '../config';
 import type { ModelParams } from './llm';
+import { getCachedModels } from './modelCatalog';
 
 // ==================== 类型定义 ====================
 
@@ -60,6 +61,17 @@ const BAILIAN_MODELS: ProviderModel[] = [
   { id: 'qwen3-4b', name: '通义千问3 4B', description: '轻量高效，本地部署友好', free: false },
 ];
 
+// ==================== DeepSeek 官方模型清单 ====================
+// DeepSeek 走用户自带 API Key（user_api_keys.provider = 'deepseek'），
+// 因此这里只登记"厂商能提供哪些模型"，key 在请求级由用户凭据覆盖。
+
+const DEEPSEEK_BASE_URL = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1';
+
+const DEEPSEEK_MODELS: ProviderModel[] = [
+  { id: 'deepseek-chat', name: 'DeepSeek Chat', description: '通用对话，响应快、成本低', free: false },
+  { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', description: '深度推理，适合复杂分析与代码', free: false },
+];
+
 // ==================== 运行时状态 ====================
 
 const OLLAMA_BASE = 'http://localhost:11434';
@@ -72,20 +84,11 @@ let ollamaChecked = false;
 let currentProviderId = 'bailian';
 let currentModelName: string = config.llm.modelName;
 
-// 请求级 model/provider 覆盖（流式请求期间临时生效）
-let requestModelOverride: { providerId?: string; modelName?: string } | null = null;
-
-export function setRequestModelOverride(override: { providerId?: string; modelName?: string } | null): void {
-  requestModelOverride = override;
-}
-
+// 这里曾有 requestModelOverride（请求级 model/provider 覆盖），但它只有清理调用、
+// 没有任何设置点，等于永远为 null —— 是死代码，已移除。
+// "每个用户用哪个模型"改由用户级偏好（user_model_preferences）+ 请求上下文承载，
+// 见 llm.ts 的 resolveProviderAndModel 与 userModelPreference.ts。
 function effectiveCurrent(): { providerId: string; modelName: string } {
-  if (requestModelOverride?.modelName) {
-    const found = findModel(requestModelOverride.modelName);
-    if (found) {
-      return { providerId: requestModelOverride.providerId || found.provider.id, modelName: requestModelOverride.modelName };
-    }
-  }
   return { providerId: currentProviderId, modelName: currentModelName };
 }
 
@@ -102,6 +105,18 @@ function buildBailianProvider(): Provider {
   };
 }
 
+function buildDeepSeekProvider(): Provider {
+  return {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    type: 'openai_compatible',
+    baseUrl: DEEPSEEK_BASE_URL,
+    // 全局兜底 Key：多数场景应为空，实际使用用户自己的 Key（见 llm.ts 的请求级凭据覆盖）
+    apiKey: process.env.DEEPSEEK_API_KEY || '',
+    models: DEEPSEEK_MODELS,
+  };
+}
+
 function buildOllamaProvider(): Provider {
   return {
     id: 'ollama',
@@ -114,16 +129,91 @@ function buildOllamaProvider(): Provider {
   };
 }
 
-/** 返回配置的提供商列表（含运行状态） */
+/**
+ * 动态清单只做「补充」不做删除：
+ * 静态清单里的友好名称、"免费"标记、以及 qwen3.5-ocr 这类专业模型都不能被动态结果覆盖掉。
+ */
+function withDynamicModels(provider: Provider): Provider {
+  const dynamic = getCachedModels(provider.id);
+  if (!dynamic?.length) return provider;
+  const known = new Set(provider.models.map((m) => m.id));
+  const extra = dynamic.filter((m) => !known.has(m.id));
+  return extra.length ? { ...provider, models: [...provider.models, ...extra] } : provider;
+}
+
+/** 返回配置的提供商列表（含运行状态，已并入动态拉取到的模型） */
 export function getProviders(): Provider[] {
-  const list: Provider[] = [buildBailianProvider()];
+  const list: Provider[] = [buildBailianProvider(), buildDeepSeekProvider()];
   // Ollama 始终列出，未运行时前端据此显示"未检测到"
   const ollama = buildOllamaProvider();
   if (!ollamaAvailable) {
     ollama.error = 'Ollama未运行';
   }
   list.push(ollama);
-  return list;
+  return list.map(withDynamicModels);
+}
+
+/**
+ * 可配置 API Key 的厂商清单。
+ * 前端"厂商"下拉据此渲染，从源头杜绝"选项里有、后端不支持、选了必然静默失败"的问题
+ * （此前前端写死的 openai 选项后端就没有对应 provider）。
+ */
+export function getConfigurableProviders(): Array<{
+  id: string;
+  name: string;
+  type: ProviderType;
+  baseUrl: string;
+  requiresKey: boolean;
+  modelCount: number;
+}> {
+  return getProviders().map((p) => ({
+    id: p.id,
+    name: p.name,
+    type: p.type,
+    baseUrl: p.baseUrl,
+    requiresKey: p.type !== 'ollama',
+    modelCount: p.models.length,
+  }));
+}
+
+// ==================== 厂商 id 归一化 ====================
+
+/**
+ * user_api_keys.provider 存的是界面上的厂商别名（dashscope / openai / deepseek / ollama），
+ * 而内置 provider id 是 bailian / deepseek / ollama —— 两套命名不一致会导致
+ * "用户配了 Key 却匹配不到任何厂商"，于是静默回退到全局 Key。
+ * 这里统一收敛到内置 id。
+ */
+const PROVIDER_ALIASES: Record<string, string> = {
+  dashscope: 'bailian',
+  bailian: 'bailian',
+  aliyun: 'bailian',
+  'aliyun-bailian': 'bailian',
+  qwen: 'bailian',
+  deepseek: 'deepseek',
+  ollama: 'ollama',
+  openai: 'openai',
+};
+
+export function normalizeProviderId(raw?: string | null): string | null {
+  if (!raw) return null;
+  const key = String(raw).trim().toLowerCase();
+  if (!key) return null;
+  return PROVIDER_ALIASES[key] || key;
+}
+
+/** 按（可能是别名的）厂商 id 取 provider 定义 */
+export function getProviderById(providerId?: string | null): Provider | null {
+  const id = normalizeProviderId(providerId);
+  if (!id) return null;
+  return getProviders().find((p) => p.id === id) || null;
+}
+
+/** 该模型 id 是否属于指定厂商 */
+export function providerHasModel(providerId: string | null | undefined, modelId: string): boolean {
+  const provider = getProviderById(providerId);
+  if (!provider) return false;
+  return provider.models.some((m) => m.id === modelId);
 }
 
 // ==================== Ollama 检测 ====================
@@ -349,4 +439,24 @@ export function getCurrentModelInfo() {
     providerName: found?.resolved.providerName || '',
     baseUrl: found?.provider.baseUrl || config.llm.baseUrl,
   };
+}
+
+/**
+ * 只返回指定厂商的模型分组。
+ * 用途：登录用户按其已配置 API Key 的厂商拉取"我能用哪些模型"，
+ * 避免下拉里出现自己根本没有 Key、选了必然报错的模型。
+ */
+export function getModelsGroupedByProviders(providerIds: Array<string | null | undefined>): Array<{
+  providerId: string;
+  providerName: string;
+  type: ProviderType;
+  available: boolean;
+  error?: string;
+  models: ResolvedModel[];
+}> {
+  const wanted = new Set(
+    providerIds.map((p) => normalizeProviderId(p)).filter((p): p is string => !!p)
+  );
+  if (wanted.size === 0) return [];
+  return getModelsGroupedByProvider().filter((g) => wanted.has(g.providerId));
 }

@@ -108,6 +108,8 @@ export async function initDatabase(): Promise<boolean> {
     // 对话分支：父消息 id + 分支标识（第一阶段功能 1）
     await client.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS parent_id UUID`);
     await client.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS branch_id VARCHAR(100)`);
+    // 本轮产出的文件/链接：消息末尾的文件卡片靠它渲染（刷新后仍在）
+    await client.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS artifacts JSONB DEFAULT '[]'`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_messages_branch ON messages(session_id, branch_id)`);
@@ -128,6 +130,7 @@ export async function initDatabase(): Promise<boolean> {
     await client.query(`COMMENT ON COLUMN messages.token_usage IS 'Token 使用情况 [JSONB]'`);
     await client.query(`COMMENT ON COLUMN messages.parent_id IS '父消息 ID，支持对话分支'`);
     await client.query(`COMMENT ON COLUMN messages.branch_id IS '对话分支标识'`);
+    await client.query(`COMMENT ON COLUMN messages.artifacts IS '本轮产出的文件/链接（消息末尾文件卡片）[JSONB]'`);
     
     // 工具调用记录表
     await client.query(`
@@ -466,6 +469,38 @@ export async function initDatabase(): Promise<boolean> {
     await client.query(`
       INSERT INTO user_settings (id) VALUES (1)
       ON CONFLICT (id) DO NOTHING
+    `);
+
+    // 用户级模型偏好：当前选中的模型 + 自定义模型清单。
+    // user_settings 是单例表（id 恒为 1），承载不了多用户维度，故单独建表。
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_model_preferences (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        provider VARCHAR(50),
+        model VARCHAR(200),
+        custom_models JSONB DEFAULT '[]'::jsonb,
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // 用户级 Agent 输出目录：与模型偏好同理，单例 user_settings 装不下多用户。
+    // 否则 A 改了生成目录，B 的产物也会跟着落到 A 的目录里。
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_output_preferences (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        output_dir TEXT,
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    // 用户级 Agent 权限模式（sandbox / full）：授权必须跟着人走，
+    // 否则 A 打开的"完全访问"等于把本机读写能力也交给了 B。
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_permission_preferences (
+        user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        mode VARCHAR(20) DEFAULT 'sandbox',
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
     `);
 
     // 登录日志表（安全审计）

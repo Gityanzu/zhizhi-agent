@@ -14,7 +14,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { config } from '../config';
-import { getWorkspaceDir, resolveTarget, classify, isSensitive, type ToolContext } from './filePermission';
+import { getWorkspaceDir, resolveTarget, classify, isSensitive } from './filePermission';
+import type { ToolContext } from './agent';
 import { getAgentOutputDir } from './agentOutput';
 import { addDocuments, hybridSearch, deleteDocumentsBySource } from './vectorStore';
 

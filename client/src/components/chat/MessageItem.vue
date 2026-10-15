@@ -55,14 +55,16 @@
           </div>
         </div>
 
-        <!-- 桌面端文件审批卡（内联对话） -->
+        <!-- 桌面端审批卡（内联对话）：文件读写 + 工具网关（exec/network/db） -->
         <div v-if="message.pendingApproval" class="approval-card" :class="{ decided: message.pendingApproval.decided }">
           <div class="approval-header">
             <el-icon class="approval-icon"><Warning /></el-icon>
-            <span class="approval-title">{{ message.pendingApproval.kind === 'write' ? '请求写入文件' : '请求读取文件' }}</span>
-            <el-tag v-if="!message.pendingApproval.inRoot" type="warning" size="small">输出目录外</el-tag>
+            <span class="approval-title">{{ approvalTitle(message.pendingApproval) }}</span>
+            <el-tag v-if="showInRootTag(message.pendingApproval)" type="warning" size="small">输出目录外</el-tag>
           </div>
-          <div class="approval-path"><code>{{ message.pendingApproval.path }}</code></div>
+          <!-- 工具类审批的 path 是 tool:xxx 这种内部标识，对用户无意义，展示说明文字更清楚 -->
+          <div v-if="message.pendingApproval.description" class="approval-desc">{{ message.pendingApproval.description }}</div>
+          <div v-else class="approval-path"><code>{{ message.pendingApproval.path }}</code></div>
           <div v-if="message.pendingApproval.kind === 'write'" class="approval-diff">
             <div class="diff-col">
               <div class="diff-label">修改前</div>
@@ -294,6 +296,9 @@
         </div>
       </el-dialog>
       
+      <!-- 本轮生成的文件（左键打开，右键更多操作） -->
+      <MessageArtifacts v-if="message.artifacts && message.artifacts.length" :artifacts="message.artifacts" />
+
       <div class="message-time">
         {{ formatTime(message.timestamp) }}
       </div>
@@ -308,8 +313,9 @@ import { Marked } from 'marked'
 import { markedHighlight } from 'marked-highlight'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js'
-import type { ChatMessage, CodeExecutionResult } from '@/types'
+import type { ChatMessage, CodeExecutionResult, PendingApproval } from '@/types'
 import { executeCode } from '@/api'
+import MessageArtifacts from './MessageArtifacts.vue'
 
 const props = defineProps<{
   message: ChatMessage
@@ -322,6 +328,28 @@ const emit = defineEmits<{
   (e: 'plan-confirm', messageId: string, confirmed: boolean, feedback?: string): void
 }>()
 
+// 审批卡标题：旧实现只区分 write / read，于是 exec/network/db 这类工具网关审批
+// 会被显示成「请求读取文件」并挂上「输出目录外」标签 —— 实测 code_interpreter 的
+// 审批卡就是「请求读取文件 · 输出目录外 · tool:code_interpreter」，
+// 用户完全看不出自己到底在授权什么。
+const APPROVAL_TITLES: Record<PendingApproval['kind'], string> = {
+  read: '请求读取文件',
+  write: '请求写入文件',
+  exec: '请求执行代码 / 命令',
+  network: '请求访问网络',
+  db: '请求查询外部数据库',
+}
+
+function approvalTitle(a: PendingApproval): string {
+  return APPROVAL_TITLES[a.kind] || '请求授权'
+}
+
+// 只有文件类审批才有"是否位于输出目录内"的概念。工具类审批服务端恒传
+// inRoot=false，再显示「输出目录外」纯属误导。
+function showInRootTag(a: PendingApproval): boolean {
+  return (a.kind === 'read' || a.kind === 'write') && !a.inRoot
+}
+
 const expandedTools = ref<number[]>([])
 const expandedPlan = ref(false)
 const expandedTrace = ref(false)
@@ -331,7 +359,9 @@ const copied = ref(false)
 // Plan 模式前置确认
 const planFeedback = ref('')
 function confirmPlan(confirmed: boolean, feedback?: string) {
-  emit('plan-confirm', message.id, confirmed, feedback && feedback.trim() ? feedback.trim() : undefined)
+  // 模板里 `message` 会被自动展开成 props.message，但 <script setup> 里没有这个名字，
+  // 之前写成 message.id 会让「Plan 前置确认」一点就抛 ReferenceError。
+  emit('plan-confirm', props.message.id, confirmed, feedback && feedback.trim() ? feedback.trim() : undefined)
 }
 
 // 代码执行状态
@@ -482,7 +512,7 @@ const renderedContent = computed(() => {
     return match.replace(/\|/g, '| ')
   })
   
-  console.log('📝 Markdown content:', content.substring(0, 200))
+  // console.log('📝 Markdown content:', content.substring(0, 200))
   
   // 使用 DOMPurify 净化 HTML，防止 XSS 攻击
   let rawHtml: string
@@ -495,16 +525,16 @@ const renderedContent = computed(() => {
     return props.message.content
   }
   
-  console.log('⚡ rawHtml length:', rawHtml.length)
-  console.log('⚡ rawHtml preview:', rawHtml.substring(0, 300))
+  // console.log('⚡ rawHtml length:', rawHtml.length)
+  // console.log('⚡ rawHtml preview:', rawHtml.substring(0, 300))
   
   const sanitized = DOMPurify.sanitize(rawHtml, {
     ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'code', 'pre', 'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'span', 'div', 'sup', 'button'],
     ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'data-ref', 'data-lang', 'data-code-id'],
   })
   
-  console.log('🛡️ sanitized length:', sanitized.length)
-  console.log('🛡️ sanitized preview:', sanitized.substring(0, 200))
+  // console.log('🛡️ sanitized length:', sanitized.length)
+  // console.log('🛡️ sanitized preview:', sanitized.substring(0, 200))
     
   // 将正文里的 [n] / [来源 p] 转为可点击上标引用编号
   return sanitized.replace(/\[来源?(\d+)\]/g, (_, num) => {
@@ -875,6 +905,12 @@ function toggleRunResult(runId: string) {
   font-size: 13px;
   font-weight: 600;
   color: #b88230;
+}
+.approval-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #b88230;
+  word-break: break-word;
 }
 .approval-path code {
   display: inline-block;

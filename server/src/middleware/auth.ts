@@ -7,6 +7,18 @@ export interface AuthRequest extends Request {
   user?: User;
 }
 
+// 全局增强 Express.Request：认证中间件会挂载 userId / username / user，
+// 这样所有路由处理函数（已声明为 Request）都能直接访问，不必逐个换成 AuthRequest。
+declare global {
+  namespace Express {
+    interface Request {
+      userId?: string;
+      username?: string;
+      user?: User;
+    }
+  }
+}
+
 // 从请求头解析并校验 Token，返回 payload（无/非法则 null）
 function parseToken(req: AuthRequest): { userId: string; username: string } | null {
   const authHeader = req.headers.authorization;

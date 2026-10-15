@@ -34,6 +34,54 @@ export async function getSkillDetail(skillId: string) {
   return res.data;
 }
 
+// ==================== 技能市场 / 安装 / 卸载 ====================
+
+export interface MarketSkill {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  version: string;
+  type: 'online' | 'offline';
+  category: string;
+  featured?: boolean;
+  downloads: number;
+  triggerKeywords: string[];
+  allowedTools: string[];
+  systemPrompt: string;
+  installed: boolean;
+}
+
+export async function getSkillMarket(): Promise<{ categories: string[]; skills: MarketSkill[] }> {
+  const res = await api.get('/api/skill/market');
+  return { categories: res.data.categories || [], skills: res.data.skills || [] };
+}
+
+export async function uploadSkillFile(file: File): Promise<void> {
+  const form = new FormData();
+  form.append('file', file);
+  await api.post('/api/skill/upload', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+}
+
+export async function installSkill(data: {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  version?: string;
+  triggerKeywords?: string[];
+  systemPrompt: string;
+  allowedTools?: string[];
+}): Promise<void> {
+  await api.post('/api/skill/install-file', data);
+}
+
+export async function uninstallFileSkill(skillId: string): Promise<void> {
+  await api.delete(`/api/skill/file/${encodeURIComponent(skillId)}`);
+}
+
 // ===== 自定义 Agent =====
 export async function getAgents(): Promise<{ agents: CustomAgent[] }> {
   const res = await api.get('/api/agents');

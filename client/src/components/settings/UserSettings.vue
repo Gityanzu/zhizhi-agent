@@ -75,6 +75,15 @@
             </div>
             <div style="color:#909399; font-size:12px; margin-top:4px">Agent 生成文件（代码/文档等）的默认落点；读写本机文件时会弹窗请你确认。</div>
           </div>
+          <div class="form-item">
+            <label>Agent 权限</label>
+            <!-- 与输入框工具栏是同一个组件、同一份状态：权限只有一个真相来源 -->
+            <PermissionModeSelect />
+            <div style="color:#909399; font-size:12px; margin-top:4px">
+              选择「允许全部权限」后 Agent 读写本机文件、执行命令不再逐次确认；凭据/密钥等敏感文件仍会拒绝访问。
+              该设置只对当前账号生效，切换即时保存。
+            </div>
+          </div>
           <el-button type="primary" @click="savePreferences" :loading="saving">保存偏好</el-button>
         </div>
       </el-tab-pane>
@@ -91,12 +100,33 @@
 
           <!-- 已登录：API Key 管理 -->
           <template v-else>
+            <!-- 当前生效的模型来源：登录后即回显用户自己配置的厂商 -->
+            <div v-if="activeInfo?.configured" class="active-provider">
+              <el-icon><Cpu /></el-icon>
+              <span>当前使用：<b>{{ activeInfo.providerName }}</b></span>
+              <span class="active-provider-prefix">{{ activeInfo.keyPrefix }}</span>
+              <span v-if="activeInfo.matched !== false" class="active-provider-models">
+                可用模型 {{ activeInfo.models?.length || 0 }} 个
+              </span>
+            </div>
+            <!-- Key 没能生效时必须显式提示：静默回退会让人误以为配置已生效 -->
+            <div v-if="activeInfo?.warning" class="active-provider warn">
+              <el-icon><Warning /></el-icon>
+              <span>{{ activeInfo.warning }}</span>
+            </div>
+            <div v-if="!activeInfo?.configured" class="active-provider muted">
+              <el-icon><Warning /></el-icon>
+              <span>尚未配置 API Key，当前使用系统默认模型</span>
+            </div>
+
             <div class="api-key-form">
               <el-select v-model="newKey.provider" placeholder="选择厂商" style="width: 140px">
-                <el-option label="阿里云百炼" value="dashscope" />
-                <el-option label="OpenAI" value="openai" />
-                <el-option label="DeepSeek" value="deepseek" />
-                <el-option label="Ollama(本地)" value="ollama" />
+                <el-option
+                  v-for="p in providerOptions"
+                  :key="p.id"
+                  :label="p.requiresKey ? p.name : `${p.name}(本地)`"
+                  :value="p.id"
+                />
               </el-select>
               <el-input v-model="newKey.name" placeholder="名称（如：工作Key）" style="width: 140px" />
               <el-input v-model="newKey.key" placeholder="API Key" type="password" show-password style="flex:1" />
@@ -157,14 +187,19 @@
 import { ref, reactive, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { User, Download, Warning } from '@element-plus/icons-vue';
-import axios from 'axios';
+import { User, Download, Warning, Cpu } from '@element-plus/icons-vue';
 import { useAuthStore } from '../../stores/auth';
-import { getUserApiKeys, addUserApiKey, deleteUserApiKey, setDefaultApiKey } from '../../api/userApiKey';
+import { getUserApiKeys, addUserApiKey, deleteUserApiKey, setDefaultApiKey, getActiveApiKey, getProviderOptions } from '../../api/userApiKey';
+import { getUserSettings, updateUserProfile, updateUserPreferences, deleteUserSettingsApiKey, exportUserData, importUserData } from '../../api/userSettings';
+import { useChatStore } from '../../stores/chat';
+import { usePermissionStore } from '../../stores/permission';
 import { useDesktop } from '../../composables/useDesktop';
+import PermissionModeSelect from '../chat/PermissionModeSelect.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
+const permissionStore = usePermissionStore();
+const chatStore = useChatStore();
 const { isDesktop, pickDirectory } = useDesktop();
 
 const props = withDefaults(defineProps<{
@@ -191,9 +226,16 @@ const preferences = reactive({
   topP: 1.0,
   maxTokens: 2048,
   agentOutputDir: ''
+  // 注意：权限模式（sandbox / full）不在此对象内 —— 它由 PermissionModeSelect
+  // 经由 usePermissionStore + PUT /api/user/settings/permission-mode 单独管理，
+  // 既不在 preferences 里渲染，也不随整包偏好写回（避免顺带授权）。
 });
 const apiKeys = ref<any[]>([]);
-const newKey = reactive({ provider: 'dashscope', name: '', key: '' });
+// 当前生效的模型来源（后端按用户维度返回：厂商 + Key 前缀 + 该厂商模型列表）
+const activeInfo = ref<any>(null);
+// 后端支持的厂商：下拉据此渲染，不再前端写死（此前写死的 openai 后端并不支持）
+const providerOptions = ref<any[]>([]);
+const newKey = reactive({ provider: '', name: '', key: '' });
 const fileInput = ref<HTMLInputElement>();
 const importFile = ref<File | null>(null);
 const importFileName = ref('');
@@ -203,11 +245,22 @@ const models = [
   'kimi-k3', 'kimi-k2.7-code', 'deepseek-v4-flash-0731', 'glm-5.2'
 ];
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+// 后端 /api/user-api-keys/providers 挂掉或返回空时的兜底厂商，
+// 与 server/src/services/llmProvider.ts 里的 getConfigurableProviders() 保持一致。
+const DEFAULT_PROVIDER_OPTIONS = [
+  { id: 'bailian', name: '阿里云百炼', type: 'openai_compatible', baseUrl: '', requiresKey: true, modelCount: 0 },
+  { id: 'deepseek', name: 'DeepSeek', type: 'openai_compatible', baseUrl: 'https://api.deepseek.com/v1', requiresKey: true, modelCount: 0 },
+  { id: 'ollama', name: 'Ollama 本地', type: 'ollama', baseUrl: 'http://localhost:11434/v1', requiresKey: false, modelCount: 0 },
+];
 
 function providerName(p: string) {
-  const map: any = { dashscope: '阿里云百炼', openai: 'OpenAI', deepseek: 'DeepSeek', ollama: 'Ollama' };
-  return map[p] || p;
+  // 旧数据存的是界面别名（dashscope），新数据存归一化后的 id（bailian），两者都要能显示
+  const aliasMap: any = { dashscope: 'bailian', aliyun: 'bailian' };
+  const id = aliasMap[p] || p;
+  const hit = providerOptions.value.find((o: any) => o.id === id);
+  if (hit) return hit.name;
+  const fallback: any = { bailian: '阿里云百炼', deepseek: 'DeepSeek', ollama: 'Ollama' };
+  return fallback[id] || p;
 }
 
 // 桌面端：通过原生目录选择器设定 Agent 默认输出目录
@@ -218,14 +271,19 @@ async function chooseOutputDir() {
 
 async function loadSettings() {
   try {
-    const res = await axios.get(`${API_BASE}/api/user/settings`);
-    Object.assign(profile, res.data.profile);
-    Object.assign(preferences, res.data.preferences);
+    const data = await getUserSettings();
+    Object.assign(profile, data.profile);
+    Object.assign(preferences, data.preferences);
+    // 权限模式交给共享 store（同一个下拉组件在输入框工具栏也有一份），顺手把刚拉到的数据喂给它
+    permissionStore.applyFromSettings(data);
     // 旧的单用户API Key（兼容）
-    apiKeys.value = res.data.llmKeys || [];
+    apiKeys.value = data.llmKeys || [];
   } catch (e) {
     console.error('加载设置失败', e);
   }
+
+  // 厂商下拉的选项来自后端，避免出现后端不支持、选了必然失败的选项
+  await loadProviderOptions();
 
   // 加载多用户API Key（如果已登录）
   if (authStore.isAuthenticated) {
@@ -235,6 +293,48 @@ async function loadSettings() {
     } catch (e) {
       console.error('加载用户API Key失败', e);
     }
+  }
+
+  await refreshActiveInfo();
+}
+
+/** 加载后端支持的厂商清单（下拉的 value 用后端 provider id） */
+async function loadProviderOptions() {
+  try {
+    const res = await getProviderOptions();
+    const list = res.data.providers || [];
+    providerOptions.value = list.length ? list : DEFAULT_PROVIDER_OPTIONS;
+    if (!newKey.provider) {
+      newKey.provider = providerOptions.value[0]?.id || '';
+    }
+  } catch (e: any) {
+    console.error('加载厂商列表失败', e);
+    ElMessage.error(e?.response?.data?.error || '加载厂商列表失败，使用默认厂商');
+    providerOptions.value = DEFAULT_PROVIDER_OPTIONS;
+  }
+}
+
+/**
+ * 读取"当前生效"的模型配置并同步到聊天区。
+ * 新增/删除/切换默认 Key 后都要走一遍：厂商变了，聊天区的模型下拉也得跟着变，
+ * 否则用户会看到一个自己根本没有 Key 的模型。
+ */
+async function refreshActiveInfo() {
+  if (!authStore.isAuthenticated) {
+    activeInfo.value = null;
+    return;
+  }
+  try {
+    const res = await getActiveApiKey();
+    activeInfo.value = res.data;
+  } catch (e) {
+    console.error('读取当前生效的模型配置失败', e);
+    activeInfo.value = null;
+  }
+  try {
+    await chatStore.loadModelInfo();
+  } catch (e) {
+    console.warn('同步模型列表失败', e);
   }
 }
 
@@ -246,7 +346,7 @@ function goToLogin() {
 async function saveProfile() {
   saving.value = true;
   try {
-    await axios.put(`${API_BASE}/api/user/settings/profile`, profile);
+    await updateUserProfile(profile);
     ElMessage.success('资料已保存');
     emit('saved');
   } catch {
@@ -259,7 +359,8 @@ async function saveProfile() {
 async function savePreferences() {
   saving.value = true;
   try {
-    await axios.put(`${API_BASE}/api/user/settings/preferences`, preferences);
+    // 权限模式由独立端点管理，这里直接传其余偏好即可（preferences 已不含该字段）
+    await updateUserPreferences({ ...preferences });
     ElMessage.success('偏好已保存');
     emit('saved');
   } catch {
@@ -312,7 +413,7 @@ async function removeKey(id: string) {
     if (authStore.isAuthenticated) {
       await deleteUserApiKey(id);
     } else {
-      await axios.delete(`${API_BASE}/api/user/settings/api-keys/${id}`);
+      await deleteUserSettingsApiKey(id);
     }
     ElMessage.success('已删除');
     await loadSettings();
@@ -322,8 +423,8 @@ async function removeKey(id: string) {
 async function exportData() {
   exporting.value = true;
   try {
-    const res = await axios.get(`${API_BASE}/api/user/export`, { responseType: 'blob' });
-    const url = URL.createObjectURL(res.data);
+    const blob = await exportUserData();
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `zhizhi-backup-${new Date().toISOString().split('T')[0]}.json`;
@@ -351,8 +452,8 @@ async function importData() {
   try {
     const text = await importFile.value.text();
     const data = JSON.parse(text);
-    const res = await axios.post(`${API_BASE}/api/user/import`, data);
-    ElMessage.success(`导入完成，共导入 ${res.data.imported} 条记录`);
+    const result = await importUserData(data);
+    ElMessage.success(`导入完成，共导入 ${result.imported} 条记录`);
     importFile.value = null;
     importFileName.value = '';
     if (fileInput.value) fileInput.value.value = '';
@@ -467,6 +568,48 @@ watch(visible, v => { if (v) loadSettings(); });
 .key-actions {
   display: flex;
   gap: 8px;
+}
+
+/* 当前生效的模型来源 */
+.active-provider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.active-provider.muted {
+  background: rgba(230, 162, 60, 0.08);
+  border-color: rgba(230, 162, 60, 0.3);
+  color: var(--text-secondary);
+}
+
+/* Key 未生效 / 刷新失败：用告警色，并允许换行展示完整原因 */
+.active-provider.warn {
+  align-items: flex-start;
+  background: rgba(245, 108, 108, 0.08);
+  border-color: rgba(245, 108, 108, 0.35);
+  color: #f56c6c;
+  white-space: normal;
+  line-height: 1.5;
+}
+
+.active-provider-prefix {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.active-provider-models {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .key-provider {

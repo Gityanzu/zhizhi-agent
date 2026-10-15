@@ -11,14 +11,20 @@
       <Sidebar @session-selected="mobileSidebarVisible = false" @import="showImportDialog = true" @share="openShare" />
     </el-drawer>
     
-    <!-- 桌面端侧边栏 -->
-    <Sidebar v-if="!isMobile" @import="showImportDialog = true" @share="openShare" />
-    
+    <!-- 桌面端侧边栏（可通过头部最左侧按钮收起/展开） -->
+    <Sidebar v-if="!isMobile && !sidebarCollapsed" @import="showImportDialog = true" @share="openShare" />
+
     <!-- 主内容区 -->
     <div class="main-content">
       <!-- 顶部栏 -->
       <header class="header">
         <div class="header-left">
+          <!-- 侧边栏收起/展开：桌面端顶栏最左侧 -->
+          <el-tooltip v-if="!isMobile" :content="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'" placement="bottom">
+            <button class="icon-btn" @click="toggleSidebar">
+              <el-icon :size="18"><component :is="sidebarCollapsed ? Expand : Fold" /></el-icon>
+            </button>
+          </el-tooltip>
           <!-- 移动端汉堡菜单 -->
           <el-button
             v-if="isMobile"
@@ -29,16 +35,25 @@
             <el-icon :size="20"><Menu /></el-icon>
           </el-button>
           <h1 class="logo">智知</h1>
-              
+
           <!-- Agent 选择器 -->
           <AgentSelector />
         </div>
-        
+
         <div class="header-center">
-          <!-- 模型和模式已移到输入区上方的工具栏 -->
+          <!-- 当前会话标题 -->
+          <span class="session-title" :title="chatStore.currentSession?.title || ''">
+            {{ chatStore.currentSession?.title || '新对话' }}
+          </span>
         </div>
-        
+
         <div class="header-right">
+          <!-- 打开/关闭右侧资源面板 -->
+          <el-tooltip v-if="!isMobile" :content="rightPanelVisible ? '收起右侧栏' : '打开右侧栏'" placement="bottom">
+            <button class="icon-btn" :class="{ active: rightPanelVisible }" @click="toggleRightPanel">
+              <el-icon :size="18"><component :is="rightPanelVisible ? DArrowRight : DArrowLeft" /></el-icon>
+            </button>
+          </el-tooltip>
           <!-- Token徽标 -->
           <el-tooltip placement="bottom" effect="dark">
             <template #content>
@@ -142,8 +157,13 @@
         </span>
       </div>
       
-      <!-- 对话区域 -->
-      <ChatArea />
+      <!-- 对话区域 + 右侧资源面板（三栏中的中/右两栏） -->
+      <div class="body-row">
+        <div class="body-chat">
+          <ChatArea />
+        </div>
+        <ResourcePanel ref="resourcePanelRef" v-if="!isMobile" v-model="rightPanelVisible" />
+      </div>
       
       <!-- 文档管理面板 -->
       <DocumentPanel v-if="showDocumentPanel" @close="showDocumentPanel = false" />
@@ -318,12 +338,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Document, Cpu, ChatDotRound, Service, List, UserFilled, MagicStick, DataAnalysis, Collection, EditPen, Menu, MoreFilled, Check, Download, Moon, Sunny, ArrowDown, Setting, Operation, Tools, ScaleToOriginal, Star, Share, Coin, Microphone, Plus, Close, Key } from '@element-plus/icons-vue'
+import { Document, Cpu, ChatDotRound, Service, List, UserFilled, MagicStick, DataAnalysis, Collection, EditPen, Menu, MoreFilled, Check, Download, Moon, Sunny, ArrowDown, Setting, Operation, Tools, ScaleToOriginal, Star, Share, Coin, Microphone, Plus, Close, Key, Fold, Expand, DArrowLeft, DArrowRight } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import Sidebar from '@/components/common/Sidebar.vue'
 import ChatArea from '@/components/chat/ChatArea.vue'
+import ResourcePanel from '@/components/workbench/ResourcePanel.vue'
 import DocumentPanel from '@/components/knowledge/DocumentPanel.vue'
 import ObservabilityPanel from '@/components/agent/ObservabilityPanel.vue'
 import MemoryPanel from '@/components/knowledge/MemoryPanel.vue'
@@ -370,6 +391,52 @@ const dbTab = ref('connections')
 const mobileSidebarVisible = ref(false)
 const showMobileSkillDialog = ref(false)
 const showMobileModelDialog = ref(false)
+
+/* ---------------- 三栏布局：左侧栏收起 / 右侧资源面板 ---------------- */
+const sidebarCollapsed = ref(localStorage.getItem('sidebar-collapsed') === '1')
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+  try { localStorage.setItem('sidebar-collapsed', sidebarCollapsed.value ? '1' : '0') } catch { /* ignore */ }
+}
+
+const rightPanelVisible = ref(false)
+const resourcePanelRef = ref<InstanceType<typeof ResourcePanel> | null>(null)
+function toggleRightPanel() {
+  rightPanelVisible.value = !rightPanelVisible.value
+}
+
+/**
+ * 会话里的产物卡片 / 链接点过来：优先在本页右侧资源面板打开，
+ * 不再整页跳去工作台 —— 对话与预览并排，正是三栏布局的意义。
+ */
+function handleOpenResource(e: Event) {
+  const detail = ((e as CustomEvent).detail || {}) as { path?: string; url?: string }
+  if (!detail.path && !detail.url) return
+  rightPanelVisible.value = true
+  nextTick(() => resourcePanelRef.value?.open(detail))
+}
+
+function handleOpenDocumentPanel() {
+  showDocumentPanel.value = true
+}
+// 挂在 window 上：MessageArtifacts 等深层组件不需要层层 emit
+;(window as any).__hasResourcePanel = true
+
+onMounted(() => {
+  window.addEventListener('open-resource', handleOpenResource)
+  // 输入框 "+" → 添加文件 → 资料库
+  window.addEventListener('open-document-panel', handleOpenDocumentPanel as EventListener)
+  // 恢复右侧栏上次的状态
+  rightPanelVisible.value = localStorage.getItem('resource-panel-visible') === '1'
+})
+onUnmounted(() => {
+  window.removeEventListener('open-resource', handleOpenResource)
+  window.removeEventListener('open-document-panel', handleOpenDocumentPanel as EventListener)
+  ;(window as any).__hasResourcePanel = false
+})
+watch(rightPanelVisible, (v) => {
+  try { localStorage.setItem('resource-panel-visible', v ? '1' : '0') } catch { /* ignore */ }
+})
 
 // 功能12：工作流
 const workflowEditorRef = ref<InstanceType<typeof WorkflowEditor> | null>(null)
@@ -453,7 +520,7 @@ if (isDark.value) {
 }
 
 // 导出当前对话为 Markdown
-function exportConversation() {
+async function exportConversation() {
   if (chatStore.messages.length === 0) {
     ElMessage.warning('没有可导出的对话内容')
     return
@@ -494,12 +561,31 @@ function exportConversation() {
     }
   }
   
-  // 下载文件
+  const fileName = `${sessionTitle}_${date}.md`
+
+  // 桌面端走原生保存对话框：能选位置、能改文件名；浏览器端退回 <a download>
+  if (window.desktop?.isDesktop) {
+    const res = await window.desktop.file.saveExport({
+      content: markdown,
+      defaultName: fileName,
+      filters: [
+        { name: 'Markdown', extensions: ['md'] },
+        { name: '全部文件', extensions: ['*'] },
+      ],
+    })
+    if (!res.ok) {
+      ElMessage.error(res.error || '导出失败')
+    } else if (!res.data?.canceled) {
+      ElMessage.success('对话已导出为 Markdown 文件')
+    }
+    return
+  }
+
   const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `${sessionTitle}_${date}.md`
+  a.download = fileName
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
@@ -621,6 +707,22 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
+// 桌面端应用菜单命令：由 useAppCommands 统一分发，这里只接手属于本页面的命令
+// （导入弹窗、导出都依赖本组件的局部状态，所以不能上提到全局处理）
+function handleAppCommand(e: Event) {
+  const id = (e as CustomEvent<{ id?: string }>).detail?.id
+  if (id === 'chat:import') {
+    showImportDialog.value = true
+  } else if (id === 'chat:export') {
+    void exportConversation()
+  }
+}
+
+// 主题也可能被菜单栏切换，同步本页用于渲染月亮/太阳图标的 isDark
+function handleThemeChanged(e: Event) {
+  isDark.value = (e as CustomEvent<{ theme?: string }>).detail?.theme === 'dark'
+}
+
 // 功能12：工作流操作
 function selectWorkflow(id: string) {
   activeWorkflowId.value = id
@@ -664,6 +766,9 @@ onMounted(() => {
   chatStore.loadCustomAgents()
   chatStore.loadCustomTools()
   window.addEventListener('keydown', handleKeydown)
+  // 桌面端菜单命令（浏览器环境下永远不会触发，注册了也无副作用）
+  window.addEventListener('app-command', handleAppCommand)
+  window.addEventListener('theme-changed', handleThemeChanged)
   // 功能19：监听 PWA 安装提示
   window.addEventListener('beforeinstallprompt', (e: any) => {
     e.preventDefault()
@@ -673,6 +778,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('app-command', handleAppCommand)
+  window.removeEventListener('theme-changed', handleThemeChanged)
 })
 </script>
 
@@ -719,6 +826,36 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 顶栏中间：当前会话标题 */
+.session-title {
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 中栏对话 + 右栏资源面板 */
+.body-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+.body-chat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.body-chat > :deep(*) {
+  flex: 1;
+  min-height: 0;
 }
 
 .logo {

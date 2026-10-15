@@ -3,7 +3,10 @@ import { randomUUID } from 'crypto';
 import { taskStore, Task, TaskStatus, TaskEvent, TaskApproval } from './taskStore';
 import type { ApprovalRequest } from './agent';
 
-const APPROVAL_TIMEOUT_MS = 120000;
+// 审批等待上限。原来是 120s：用户稍微走开一会儿（读一下请求内容、对比一下 diff），
+// 审批就会被静默按"拒绝"处理 —— 工具没执行，模型却收到"用户已拒绝"，任务在
+// 莫名其妙的地方拐弯。放宽到 10 分钟，与 Plan 前置确认保持一致。
+const APPROVAL_TIMEOUT_MS = Number(process.env.APPROVAL_TIMEOUT_MS) || 10 * 60 * 1000;
 const PLAN_CONFIRM_TIMEOUT_MS = 10 * 60 * 1000; // Plan 前置确认超时（10 分钟）
 
 interface PendingApproval {
@@ -22,6 +25,13 @@ export class TaskManager extends EventEmitter {
   private pendingPlanConfirms = new Map<string, PendingPlanConfirm>();
   private rememberedApprovals = new Set<string>();
   private cancelled = new Set<string>();
+  /**
+   * 审批超时这类「不是用户主动决定」的事件必须让用户看见。
+   * 但它们由本类直接产生、不经过 agent 的生成器，所以拿不到 taskRunner 手里的
+   * 消息正文（full）；这里先暂存，等 taskRunner 收尾时并入正文一起落库，
+   * 否则提示只在流式过程中闪一下，刷新页面就没了。
+   */
+  private notices = new Map<string, string[]>();
 
   constructor() {
     super();
@@ -91,6 +101,13 @@ export class TaskManager extends EventEmitter {
       const timer = setTimeout(() => {
         this.pending.delete(taskId);
         this.setStatus(taskId, 'running', { approval: null });
+        // 不能只是静默 resolve(false)：用户什么都没看到，模型却被告知"用户已拒绝"。
+        // 这里既推一条实时事件（用户当场能看到），也记入 notices 由 taskRunner 落库。
+        const notice =
+          `[审批超时] 等待授权超过 ${Math.round(APPROVAL_TIMEOUT_MS / 60000)} 分钟未收到确认，` +
+          `本次未执行「${areq.path || areq.kind}」。如仍需要它，请在下一次弹窗时及时确认。`;
+        this.notices.set(taskId, [...(this.notices.get(taskId) || []), notice]);
+        this.emitEvent(taskId, 'token', { type: 'token', content: `\n\n> ${notice}\n\n` });
         resolve(false);
       }, APPROVAL_TIMEOUT_MS);
       this.pending.set(taskId, { resolve, timer });
@@ -101,10 +118,19 @@ export class TaskManager extends EventEmitter {
         inRoot: areq.inRoot,
         oldContent: areq.oldContent,
         newContent: areq.newContent,
+        description: areq.description,
       };
       taskStore.update(taskId, { status: 'need_approval', approval });
       this.emitEvent(taskId, 'approval_required', areq);
     });
+  }
+
+  /** 取出并清空暂存的提示（由 taskRunner 在收尾时并入消息正文） */
+  drainNotices(taskId: string): string[] {
+    const list = this.notices.get(taskId);
+    if (!list || list.length === 0) return [];
+    this.notices.delete(taskId);
+    return list;
   }
 
   resolveApproval(taskId: string, approved: boolean): boolean {

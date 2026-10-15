@@ -1,4 +1,4 @@
-import { api, API_BASE_URL, getToken } from './request';
+import { api, getToken } from './request';
 
 // ===== 模型相关 =====
 export async function getCurrentModel() {
@@ -7,9 +7,9 @@ export async function getCurrentModel() {
 }
 
 export async function getAvailableModels() {
-  const res = await fetch(`${API_BASE_URL}/api/model/list`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-  return res.json();
+  // 统一走 api 实例：此前用裸 fetch + 绝对地址，既绕开了 token 注入，也绕开了代理
+  const res = await api.get('/api/model/list');
+  return res.data;
 }
 
 export async function switchModel(model: string, providerId?: string) {

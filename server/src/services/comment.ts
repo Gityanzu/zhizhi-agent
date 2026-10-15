@@ -481,7 +481,7 @@ export async function getPendingComments(): Promise<AgentComment[]> {
          WHERE status IS NULL OR status = 'pending'
          ORDER BY created_at ASC`
       );
-      return rows.map(mapRow);
+      return rows.rows.map(mapRow);
     } catch (error) {
       console.error('获取待审核评论失败:', error);
       return [];
@@ -505,7 +505,7 @@ export async function getHiddenComments(): Promise<AgentComment[]> {
          WHERE status = 'hidden'
          ORDER BY updated_at DESC`
       );
-      return rows.map(mapRow);
+      return rows.rows.map(mapRow);
     } catch (error) {
       console.error('获取已隐藏评论失败:', error);
       return [];

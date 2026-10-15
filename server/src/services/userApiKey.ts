@@ -1,6 +1,9 @@
 import { query } from '../db';
 import crypto from 'crypto';
 import { resolveSecret } from '../utils/devSecret';
+import { normalizeProviderId } from './llmProvider';
+import { getUserModelPreference } from './userModelPreference';
+import type { UserApiCredential } from './llm';
 
 // 加密密钥（生产必须配置 ENCRYPTION_KEY；开发期生成本机持久化密钥）
 const ENCRYPTION_KEY = resolveSecret('ENCRYPTION_KEY', 'enc');
@@ -157,4 +160,67 @@ export async function hasUserApiKey(userId: string): Promise<boolean> {
     [userId]
   );
   return parseInt(result.rows[0].count) > 0;
+}
+
+/**
+ * 取用户「当前生效」的 API Key：优先显式设为默认的那条，其次最近添加的一条。
+ *
+ * 只认 is_default 会导致"我明明配了 Key 却完全没生效"——用户不会想到还要再点一次
+ * "设为默认"，所以这里退化为最近一条，行为与用户直觉一致。
+ */
+export async function getActiveApiKey(userId: string): Promise<UserApiKeyWithKey | null> {
+  const def = await getDefaultApiKey(userId);
+  if (def) return def;
+
+  const result = await query(
+    `SELECT id, user_id, provider, name, encrypted_key, key_prefix, base_url, is_default, created_at, updated_at
+     FROM user_api_keys
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  if (result.rows.length === 0) return null;
+
+  const row = result.rows[0];
+  try {
+    return { ...row, api_key: decrypt(row.encrypted_key) };
+  } catch {
+    return null;
+  }
+}
+
+// 请求级凭据：交给 llm 层覆盖本次请求的 Key / 厂商 / 模型。
+// 类型统一定义在 llm.ts —— 这里曾重复定义一份，两边漂移导致新增字段漏改。
+export type { UserApiCredential };
+
+/**
+ * 把用户配置的 Key 打包成请求级凭据。
+ * providerId 做了别名归一化（dashscope → bailian），否则会匹配不到内置厂商，
+ * 于是静默回退到全局 Key —— 表现为"配了 DeepSeek 的 Key，却还在走百炼"。
+ */
+export async function resolveUserCredential(userId?: string | null): Promise<UserApiCredential | null> {
+  if (!userId) return null;
+  const active = await getActiveApiKey(userId);
+  if (!active) return null;
+
+  // 用户自己选的模型与自定义模型随凭据一起进入请求上下文，从而在请求级生效；
+  // 读偏好失败不影响 Key 生效（降级为厂商默认模型）。
+  let modelName: string | undefined;
+  let customModels: string[] = [];
+  try {
+    const prefer = await getUserModelPreference(userId);
+    modelName = prefer.model || undefined;
+    customModels = prefer.customModels.map((m) => m.id);
+  } catch (e) {
+    console.warn('[UserApiKey] 读取用户模型偏好失败:', e instanceof Error ? e.message : String(e));
+  }
+
+  return {
+    apiKey: active.api_key,
+    baseUrl: active.base_url || undefined,
+    providerId: normalizeProviderId(active.provider) || undefined,
+    modelName,
+    customModels,
+  };
 }

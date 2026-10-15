@@ -13,6 +13,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import { getAgentOutputDir } from './agentOutput';
+import { isFullAccess } from './permissionMode';
 import { config } from '../config';
 
 export type FileOperation = 'read' | 'write';
@@ -101,8 +102,14 @@ export function classify(
   target: ResolvedTarget,
   isDesktop: boolean
 ): Permission {
-  // 敏感清单优先：无论读/写、桌面/非桌面，一律拒绝
+  // 敏感清单优先：无论读/写、桌面/非桌面、是否完全访问，一律拒绝。
+  // 这是硬底线而不是"沙箱范围"问题 —— 完全访问授权的是本机读写，
+  // 而 Agent 读到凭据后完全可能通过网络工具把它发出去。
   if (isSensitive(target.absPath)) return 'deny';
+
+  // 完全访问：不再逐次确认（越界路径、写覆盖都直接放行）。
+  // 是否真的处于该模式由 permissionMode.ts 按服务端能力裁决，这里只管结果。
+  if (isFullAccess()) return 'allow';
 
   // 信任工作区：配置且（桌面端 或 显式允许 Web 工作区）。工作区内读直接放行，写需审批（对齐主流本地编程代理）。
   const ws = getWorkspaceDir();

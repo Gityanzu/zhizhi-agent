@@ -130,6 +130,7 @@ async function ensureBackend({ required = false } = {}) {
   }
 
   setState({ status: 'starting', message: '正在启动本地后端…', managed: true });
+  console.log(`[electron] 使用后端入口：${entry}`);
 
   const env = {
     ...process.env,
@@ -149,7 +150,10 @@ async function ensureBackend({ required = false } = {}) {
   };
 
   const isTs = entry.endsWith('.ts');
-  const args = isTs ? [require.resolve('ts-node-dev/cli.js'), '--respawn', '--transpile-only', entry] : [entry];
+  // ts-node-dev 装在 server 的 node_modules 里，从 client/electron  require.resolve 找不到，
+  // 所以按 SERVER_DIR 显式定位 CLI。
+  const tsNodeDevCli = path.join(SERVER_DIR, 'node_modules', 'ts-node-dev', 'cli.js');
+  const args = isTs ? [tsNodeDevCli, '--respawn', '--transpile-only', entry] : [entry];
 
   try {
     child = spawn(process.execPath, args, {

@@ -74,6 +74,16 @@
   - `remember=true` 时调用 `rememberApproval(sessionId, kind)`，同会话同类授权后续不再弹窗（Agent 层命中记忆后直接放行）。
 - 无挂起审批时调用 `approve` 返回 `false`（对应端点 409）。
 
+### 5.1 完全访问（`permissionMode`）
+
+- 按用户存于 `user_permission_preferences`（`user_id` 主键；单例 `user_settings` 装不下多用户，否则 A 开完全访问等于把本机读写也给了 B）。
+- 建任务时 `routes/task.ts` 经 `runWithPermissionMode(await resolveUserPermissionMode(userId), ...)` 注入本次异步调用链；`/api/chat/send` 由 `userCredentialContext()` 中间件同理注入。
+- 判定层统一读该上下文：`classify()`（文件读写）与 `gateToolExecution()`（exec/network/db 工具审批）、git 写子命令在 `full` 下直接放行，不再弹窗。
+- 切换入口：输入框工具栏与设置页共用同一个下拉组件（`PermissionModeSelect`，状态由 `stores/permission.ts` 持有），写 `PUT /api/user/settings/permission-mode`。独立端点而非整包 `/settings/preferences`：后者是整对象覆盖，只带一个字段会把其它偏好清空。
+- 选择校验：`assertSelectablePermissionMode()` 对用户明确选择"报错"而不是静默降级（与运行时降级相反）——不支持的环境里选了 full 必须让用户知道，否则会出现"以为放开了、实际处处被拦"的错觉。
+- 硬底线：敏感文件（`isSensitive`）在任何模式下都拒绝，完全访问授权的是本机读写，不包括把凭据交出去。
+- 环境底线：`isFullAccessSupported()` 为假时（Web 托管后端）`runWithPermissionMode` 强制降级为 `sandbox`，绕过界面直接调 API 也无效。
+
 ## 6. Plan 前置确认
 
 - `taskManager.requestPlanConfirm(taskId, plan)`：状态置 `need_plan_confirm`，广播 `plan_proposed`，并启动 10 分钟超时（超时自动 `cancelled`）。
@@ -97,6 +107,16 @@
 - 事件类型：`token` / `tool_call` / `tool_result` / `plan_step` / `planning` / `agent_progress` / `agent_trace` / `approval_required` / `plan_proposed` / `status`。
   - `status` 事件的负载为状态机取值之一；其中 `completed` / `failed` / `cancelled` 表示任务结束。
   - `approval_required` / `plan_proposed` 携带挂起所需上下文（审批 kind / plan 内容）。
+  - `tool_result` 可能携带 `artifacts`：这次工具调用新产出的文件（`{path, name, size, kind, source}`），前端据此在消息末尾挂出文件卡片。
+
+### 9.1 消息产物（文件卡片）
+
+- 登记点：`agent.ts` 的文件工具（`create_file` / `write_file` / `append_file`）写入成功后调 `recordArtifact` —— 只有工具执行处知道经输出根解析与审批后的**最终绝对路径**，前端拿工具入参猜不出来。
+- 下发行：随 `tool_result` 事件的 `artifacts` 字段实时到达；落库行：`taskRunner` 汇总后写入 `messages.artifacts`（`/api/chat/send` 走 `agentRun` 的 `artifacts` 返回值）。两者都做，才能"发的当下就出现 + 刷新后仍在"。
+- 打开方式：本地文件跳工作台预览（`/code-workbench?path=`，工作台为「资源管理器（可折叠）｜对话｜预览」三栏，预览在右侧占主区），http(s) 链接跳工作台内置浏览器（`?url=`）。
+- 独立窗口：`/preview-window?path=|url=` 只渲染预览/浏览器，不带对话、树、终端。桌面端由主进程 `previewWindow.cjs` 开真实 BrowserWindow（地址由主进程拼，同源共享登录态；渲染层只能传资源标识，不能传任意站点），Web 端降级为 `window.open`。
+- 内置浏览器（`browserView.cjs`）按宿主窗口分会话：原生视图挂在具体窗口上，状态只推给所属窗口，因此主窗口与独立窗口可以各开一份互不干扰。
+- 未覆盖：`code_interpreter` / `run_shell` / `git` 产生的文件不在产物里（它们不经过文件工具），需要的话得各自登记。
 
 ## 10. 前端集成要点
 

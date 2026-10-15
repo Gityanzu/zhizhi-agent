@@ -25,6 +25,11 @@
               </el-dropdown-item>
             </div>
             <el-dropdown-item divided class="dropdown-section-title" disabled>模型</el-dropdown-item>
+            <!-- 用户 Key 没能生效时必须可见：否则"配了 Key 却还在用系统模型"完全无感 -->
+            <el-dropdown-item v-if="chatStore.userProvider?.warning" disabled class="model-warning">
+              <el-icon class="item-icon"><Warning /></el-icon>
+              <span>{{ chatStore.userProvider.warning }}</span>
+            </el-dropdown-item>
             <template v-for="g in chatStore.modelGroups" :key="g.providerId">
               <div class="model-group-header">
                 <span class="model-group-name">
@@ -39,6 +44,15 @@
                   text
                   :loading="chatStore.isRefreshingOllama"
                   @click="handleRefreshOllama"
+                >
+                  刷新
+                </el-button>
+                <el-button
+                  v-else-if="chatStore.userProvider?.configured"
+                  size="small"
+                  text
+                  :loading="chatStore.isRefreshingModels"
+                  @click="handleRefreshModels"
                 >
                   刷新
                 </el-button>
@@ -60,9 +74,28 @@
                 <el-icon class="item-icon"><Cpu /></el-icon>
                 <span>{{ model.name }}</span>
                 <el-tag v-if="model.free" size="small" type="success" effect="plain">免费</el-tag>
+                <!-- 自定义模型可删除；内置模型不提供删除入口 -->
+                <el-icon
+                  v-if="isCustomModel(model.id)"
+                  class="remove-icon"
+                  title="删除该自定义模型"
+                  @click.stop="handleRemoveCustomModel(model.id)"
+                >
+                  <Close />
+                </el-icon>
                 <el-icon v-if="selectedModel === model.id" class="check-icon"><Check /></el-icon>
               </el-dropdown-item>
             </template>
+            <!-- 自定义模型入口：有些模型不在厂商清单里（如带日期的版本号） -->
+            <el-dropdown-item
+              v-if="chatStore.userProvider?.configured"
+              divided
+              class="custom-model-item"
+              @click="handleAddCustomModel"
+            >
+              <el-icon class="item-icon"><Plus /></el-icon>
+              <span>自定义模型…</span>
+            </el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -97,15 +130,16 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useChatStore } from '@/stores/chat'
-import { ElMessage } from 'element-plus'
-import { Cpu, ArrowDown, Check, MagicStick, ChatDotRound, Service, List, UserFilled } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Cpu, ArrowDown, Check, MagicStick, ChatDotRound, Service, List, UserFilled, Warning, Close, Plus } from '@element-plus/icons-vue'
 
 const chatStore = useChatStore()
 
 const selectedModel = ref('')
 const selectedSkill = ref('')
 
-const modes = [
+// 显式标注 value 的字面量联合类型：否则推断为 string，赋给 chatStore.mode 会类型报错
+const modes: Array<{ value: 'qa' | 'agent' | 'plan' | 'multi'; label: string; icon: any }> = [
   { value: 'qa', label: '问答', icon: ChatDotRound },
   { value: 'agent', label: 'Agent', icon: Service },
   { value: 'plan', label: 'Plan', icon: List },
@@ -119,6 +153,70 @@ watch(() => chatStore.currentModel, (model) => {
 watch(() => chatStore.activeSkill, (skill) => {
   if (skill) selectedSkill.value = skill.id
 }, { immediate: true })
+
+// 用当前用户的 Key 向厂商拉取最新模型清单
+async function handleRefreshModels() {
+  try {
+    const res = await chatStore.refreshUserProviderModels()
+    if (res) ElMessage.success(res.message || '已刷新模型列表')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || '刷新模型列表失败')
+  }
+}
+
+function isCustomModel(modelId: string) {
+  return !!chatStore.userProvider?.customModels?.some((m: any) => m.id === modelId)
+}
+
+// 添加自定义模型：厂商清单之外的 id（如百炼上的 deepseek-v4-flash-0731）
+async function handleAddCustomModel() {
+  let modelId = ''
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '填写厂商支持的模型 id，保存后会立即切换过去。',
+      '添加自定义模型',
+      {
+        confirmButtonText: '添加',
+        cancelButtonText: '取消',
+        inputPlaceholder: '例如 deepseek-v4-flash-0731',
+        inputPattern: /^[A-Za-z0-9._:\/-]{1,200}$/,
+        inputErrorMessage: '仅允许字母、数字与 . - _ : / ，且不超过 200 字符',
+      }
+    )
+    modelId = String(value || '').trim()
+  } catch {
+    return // 用户取消
+  }
+
+  try {
+    const data = await chatStore.addUserCustomModel(
+      modelId,
+      chatStore.userProvider?.providerId || undefined
+    )
+    ElMessage.success(data?.message || '已添加自定义模型')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || '添加自定义模型失败')
+  }
+}
+
+async function handleRemoveCustomModel(modelId: string) {
+  try {
+    await ElMessageBox.confirm(`删除自定义模型「${modelId}」？`, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return // 用户取消
+  }
+
+  try {
+    const data = await chatStore.removeUserCustomModel(modelId)
+    ElMessage.success(data?.message || '已删除自定义模型')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || '删除自定义模型失败')
+  }
+}
 
 async function handleModelChange(modelId: string, providerId?: string) {
   try {
@@ -300,6 +398,32 @@ async function handleSkillChange(skillId: string) {
   color: var(--text-tertiary, #9ca3af);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+/* 用户 Key 未能生效时的提示：需要换行，且用告警色与普通条目区分 */
+.model-warning {
+  max-width: 320px;
+  height: auto !important;
+  white-space: normal !important;
+  line-height: 1.5;
+  color: #e6a23c !important;
+}
+
+/* 自定义模型条目的删除按钮：默认弱化，hover 变红 */
+.remove-icon {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-tertiary, #9ca3af);
+  cursor: pointer;
+}
+
+.remove-icon:hover {
+  color: #f56c6c;
+}
+
+.custom-model-item {
+  color: var(--primary, #6366f1);
+}
 }
 
 .item-icon {

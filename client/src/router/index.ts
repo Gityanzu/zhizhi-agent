@@ -53,6 +53,13 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '代码工作台' },
   },
   {
+    // 独立预览窗口：桌面端由主进程用 BrowserWindow 打开，Web 端由 window.open 打开同一个地址
+    path: '/preview-window',
+    name: 'PreviewWindow',
+    component: () => import('@/views/PreviewWindowView.vue'),
+    meta: { title: '预览' },
+  },
+  {
     path: '/agents',
     name: 'Agents',
     component: () => import('@/views/AgentsView.vue'),
@@ -99,6 +106,18 @@ const routes: RouteRecordRaw[] = [
     name: 'Settings',
     component: () => import('@/views/SettingsView.vue'),
     meta: { title: '设置' },
+  },
+  {
+    path: '/skills',
+    name: 'Skills',
+    component: () => import('@/views/SkillsView.vue'),
+    meta: { title: '技能管理' },
+  },
+  {
+    path: '/mcp',
+    name: 'Mcp',
+    component: () => import('@/views/McpView.vue'),
+    meta: { title: '连接器（MCP）' },
   },
   // 404
   {

@@ -49,7 +49,9 @@ export async function searchAgents(
   });
 
   // 缓存 categories 和 tags，避免每次都重新计算
-  const categoriesCache = new Set(allAgents.map(a => a.category).filter(Boolean));
+  const categoriesCache = new Set(
+    allAgents.map(a => a.category).filter((c): c is string => !!c)
+  );
   const tagsCache = new Set(allAgents.flatMap(a => a.tags || []));
 
   // 排序
@@ -67,7 +69,7 @@ export async function searchAgents(
         agents.sort((a, b) => {
           const ratingA = a.rating || 0;
           const ratingB = b.rating || 0;
-          return sortOrder === 'asc' ? ratingA - ratingB : ratingB - ratingA;
+          return filters?.sortOrder === 'asc' ? ratingA - ratingB : ratingB - ratingA;
         });
         break;
     }
@@ -172,8 +174,8 @@ export async function getTagRecommendations(
   const limit = options?.limit || 10;
 
   const allAgents = await getAllAgents();
-  const tagCounts = new Map<string, number>();
-  const categoryTags = new Map<string, string[]>();
+  let tagCounts = new Map<string, number>();
+  let categoryTags = new Map<string, string[]>();
 
   // 使用缓存
   const now = Date.now();
@@ -201,45 +203,43 @@ export async function getTagRecommendations(
     });
 
     // 缓存标签统计
-    if (!cachedTagCounts || !cachedCategoryTags || (now - tagCacheTimestamp >= TAG_CACHE_TTL)) {
-      cachedTagCounts = tagCounts;
-      cachedCategoryTags = categoryTags;
-      tagCacheTimestamp = now;
+    cachedTagCounts = tagCounts;
+    cachedCategoryTags = categoryTags;
+    tagCacheTimestamp = now;
+  }
+
+  // 过滤掉空标签
+  const validTagCounts = new Map<string, number>();
+  tagCounts.forEach((count, tag) => {
+    if (tag && tag.trim()) {
+      validTagCounts.set(tag, count);
     }
+  });
 
-    // 过滤掉空标签
-    const validTagCounts = new Map<string, number>();
-    tagCounts.forEach((count, tag) => {
-      if (tag && tag.trim()) {
-        validTagCounts.set(tag, count);
-      }
-    });
-
-    // 如果指定了分类，只返回该分类的标签
-    if (options?.category) {
-      const categoryTagsArray = categoryTags.get(options.category) || [];
-      const uniqueCategoryTags = [...new Set(categoryTagsArray)];
-      const recommendedTags = uniqueCategoryTags
-        .map(tag => ({
-          name: tag,
-          count: tagCounts.get(tag) || 0,
-          category: options.category,
-        }))
-        .filter(t => t.count > 0)
-        .sort((a, b) => b.count - a.count)
-        .slice(0, limit);
-
-      return { tags: recommendedTags };
-    }
-
-    // 否则返回全局热门标签
-    const recommendedTags = Array.from(validTagCounts.entries())
-      .map(([name, count]) => ({ name, count }))
+  // 如果指定了分类，只返回该分类的标签
+  if (options?.category) {
+    const categoryTagsArray = categoryTags.get(options.category) || [];
+    const uniqueCategoryTags = [...new Set(categoryTagsArray)];
+    const recommendedTags = uniqueCategoryTags
+      .map(tag => ({
+        name: tag,
+        count: tagCounts.get(tag) || 0,
+        category: options.category,
+      }))
+      .filter(t => t.count > 0)
       .sort((a, b) => b.count - a.count)
       .slice(0, limit);
 
     return { tags: recommendedTags };
   }
+
+  // 否则返回全局热门标签
+  const recommendedTags = Array.from(validTagCounts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+
+  return { tags: recommendedTags };
 }
 
 /**
@@ -248,9 +248,9 @@ export async function getTagRecommendations(
 export function getPopularTags(agents: any[], limit: number): string[] {
   const tagCounts = new Map<string, number>();
 
-  agents.forEach(agent => {
+  agents.forEach((agent: any) => {
     if (agent.tags) {
-      agent.tags.forEach(tag => {
+      agent.tags.forEach((tag: string) => {
         tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
       });
     }

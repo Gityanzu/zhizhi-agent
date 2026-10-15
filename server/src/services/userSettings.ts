@@ -2,6 +2,13 @@ import { query } from '../db';
 import crypto from 'crypto';
 import { resolveSecret } from '../utils/devSecret';
 import { setAgentOutputDir } from './agentOutput';
+import { resolveUserOutputDir, setUserOutputDir } from './userOutputPreference';
+import { resolveUserPermissionMode, setUserPermissionMode } from './userPermissionPreference';
+import {
+  assertSelectablePermissionMode,
+  isFullAccessSupported,
+  type PermissionMode,
+} from './permissionMode';
 
 export interface UserProfile {
   nickname: string;
@@ -19,6 +26,7 @@ export interface UserPreferences {
   topP: number;
   maxTokens: number;
   agentOutputDir?: string; // 桌面端 Agent 文件输出根目录（仅桌面端可设置）
+  permissionMode?: PermissionMode; // Agent 运行权限模式（sandbox / full），按用户隔离
 }
 
 export interface LLMKey {
@@ -51,7 +59,7 @@ function decrypt(encrypted: string): string {
 }
 
 // 获取用户设置
-export async function getSettings() {
+export async function getSettings(userId?: string | null) {
   const result = await query('SELECT profile, preferences, llm_keys, updated_at FROM user_settings WHERE id = 1');
   if (result.rows.length === 0) {
     return {
@@ -61,9 +69,22 @@ export async function getSettings() {
     };
   }
   const row = result.rows[0];
+  // 输出目录按用户返回：用户自己设过就以自己的为准。
+  // 为了兼容「多用户隔离改造前存在单例表里的旧数据」，用户级表没有时回退到单例表的值，
+  // 这样老用户升级后不会看到设置"消失"，再点一次保存就会真正落到用户级表。
+  const userOutputDir = await resolveUserOutputDir(userId);
+  const userPermissionMode = await resolveUserPermissionMode(userId);
+  const preferences = userId
+    ? {
+        ...row.preferences,
+        agentOutputDir: userOutputDir || row.preferences?.agentOutputDir || '',
+        permissionMode: userPermissionMode || row.preferences?.permissionMode || 'sandbox',
+      }
+    : row.preferences;
   return {
     profile: row.profile,
-    preferences: row.preferences,
+    preferences,
+    fullAccessSupported: isFullAccessSupported(),
     llmKeys: (row.llm_keys || []).map((k: any) => ({
       id: k.id,
       provider: k.provider,
@@ -84,16 +105,44 @@ export async function updateProfile(profile: UserProfile) {
 }
 
 // 更新偏好设置
-export async function updatePreferences(preferences: UserPreferences) {
+export async function updatePreferences(preferences: UserPreferences, userId?: string | null) {
+  // 按用户隔离的字段不能写进单例表：permissionMode 尤其如此 ——
+  // 写进去就相当于"上一个人开过完全访问"变成了所有人的默认值。
+  const { permissionMode, ...shared } = preferences || ({} as UserPreferences);
   await query(
     'UPDATE user_settings SET preferences = $1, updated_at = NOW() WHERE id = 1',
-    [preferences]
+    [shared]
   );
-  // 若携带输出目录，立即应用到运行时（无需重启后端即生效）
+  // 输出目录按用户落库，请求时经 resolveUserOutputDir 进入调用链生效。
+  // 不再在这里做全局 setAgentOutputDir —— 那是进程级单例，A 改目录会把 B 的产物也带走。
   if (typeof preferences.agentOutputDir === 'string') {
-    setAgentOutputDir(preferences.agentOutputDir);
+    if (userId) {
+      await setUserOutputDir(userId, preferences.agentOutputDir);
+    } else {
+      // 无用户身份（未登录/旧调用点）只能退化为全局默认
+      setAgentOutputDir(preferences.agentOutputDir);
+    }
   }
+  // permissionMode 在这里丢弃、也不落库：它走独立端点 updatePermissionMode()。
+  // 整包保存时顺带授权是危险的 —— 用户点"保存偏好"的本意不是"再确认一次完全访问"，
+  // 而且旧页面里残留的 permissionMode 字段可能把别的环境的合法授权冲掉。
+  void permissionMode;
   return preferences;
+}
+
+/**
+ * 只改 Agent 权限模式（界面上的「本机默认 / 允许全部」下拉）。
+ *
+ * 为什么不复用 /settings/preferences：那个接口是整包覆盖（还要写单例表），
+ * 而权限切换是从输入框上随手点的，只带一个字段过去必然把用户其它偏好清空。
+ *
+ * 权限必须跟人走：没有用户身份直接拒绝，宁可不改也不能落到全局默认上。
+ */
+export async function updatePermissionMode(userId: string | null | undefined, value: unknown) {
+  if (!userId) throw new Error('需要登录后才能修改权限模式');
+  const mode = assertSelectablePermissionMode(value);
+  await setUserPermissionMode(userId, mode);
+  return { mode, fullAccessSupported: isFullAccessSupported() };
 }
 
 // 添加LLM API Key

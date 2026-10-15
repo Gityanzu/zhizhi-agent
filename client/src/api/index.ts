@@ -11,3 +11,4 @@ export * from './stats';
 export * from './common';
 export * from './auth';
 export * from './userApiKey';
+export * from './userSettings';

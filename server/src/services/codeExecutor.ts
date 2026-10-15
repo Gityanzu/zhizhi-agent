@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
+import { getAgentOutputDir } from './agentOutput';
 
 export interface CodeExecutionResult {
   stdout: string;
@@ -22,6 +23,19 @@ function sanitizeEnv(): NodeJS.ProcessEnv {
     out[k] = v;
   }
   out.PYTHONUNBUFFERED = '1';
+  // 强制子进程按 UTF-8 输出。中文 Windows 下 Python 的 stdout 会跟随系统代码页（GBK），
+  // 而父进程是按 UTF-8 解码的，结果工具结果里凡是中文全变成乱码（实测出现
+  // "ϵͳ����:" / "��ǰ����Ŀ¼:"）—— 模型看到的是坏数据，根本无法判断代码到底跑成功没有。
+  // PYTHONUTF8 顺带把文件读写默认编码也统一成 UTF-8，避免读写中文文件名/内容出错。
+  out.PYTHONIOENCODING = 'utf-8';
+  out.PYTHONUTF8 = '1';
+  // 沙箱的当前工作目录是临时目录且跑完即删，脚本要保留文件只能写绝对路径。
+  // 这里给出唯一权威的输出根目录，模型照着拼即可，不必依赖它对历史路径的记忆。
+  try {
+    out.ZHI_OUTPUT_DIR = getAgentOutputDir();
+  } catch {
+    // 拿不到就不注入，模型会退回使用提示词里给出的路径
+  }
   if (config.agent.codeSandboxNoNetwork) {
     // best-effort 外联阻断：代理指向黑洞地址（硬隔离由容器网络策略在 L3 提供）
     const sink = 'http://127.0.0.1:9';
@@ -72,7 +86,15 @@ export async function executeCode(
   let filePath: string;
   let cmd: string;
   let args: string[];
-  let timeout = 30000;
+  // 超时策略：原来固定 30s，对"顺手装个依赖"完全不够 —— 实测第 2 轮
+  // `pip install python-docx` 在 30s 内装不完被判超时强制终止，白白烧掉一整轮对话，
+  // 依赖只能靠后续轮次重试才装上。这里拆成两档，并允许用环境变量统一覆盖。
+  const DEFAULT_TIMEOUT_MS = Number(process.env.CODE_EXEC_TIMEOUT_MS) || 120000;
+  const INSTALL_TIMEOUT_MS = Number(process.env.CODE_EXEC_INSTALL_TIMEOUT_MS) || 300000;
+  let timeout = DEFAULT_TIMEOUT_MS;
+  // 装依赖类代码单独放宽：这是沙箱里最慢也最常见的一步
+  const looksLikeInstall = /\b(pip3?|npm|yarn|pnpm|conda)\s+(install|i|add)\b|apt-get\s+install/i.test(code);
+  if (looksLikeInstall) timeout = INSTALL_TIMEOUT_MS;
 
   // 检测 Python 可执行文件
   const getPythonCommand = () => {
@@ -95,7 +117,8 @@ export async function executeCode(
           // 确保在非交互模式下运行，图形保存到文件
           code = `import matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\n${code}`;
         }
-        timeout = 120000; // 放宽超时
+        // matplotlib 可能还要现场安装，用最宽的一档；不覆盖上面的装依赖判定
+        timeout = Math.max(timeout, INSTALL_TIMEOUT_MS);
       }
       fs.writeFileSync(filePath, code, 'utf-8');
       cmd = getPythonCommand();
@@ -111,6 +134,8 @@ export async function executeCode(
     // 执行代码
     const result = await new Promise<{ stdout: string; stderr: string; exitCode: number }>((resolve) => {
       console.log(`🐍 [${language}] 执行命令：${cmd} ${args.join(' ')}`);
+      // 排查"改了输出目录却仍落到旧目录"：这一行能直接看出当前请求上下文里生效的是哪个目录
+      console.log(`🐍 [${language}] 输出根目录：${getAgentOutputDir()}`);
       
       const childProcess = execFile(cmd, args, {
         cwd: tmpDir,

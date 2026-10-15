@@ -51,10 +51,13 @@ function ensureUserDirs() {
   });
 }
 
-/** 后端入口：优先用编译产物，开发态回退到源码（由 ts-node-dev 承载） */
+/** 后端入口：
+ *  - 开发态优先用源码（ts-node-dev），避免改完 src 后忘了 build dist，Electron 跑的是旧代码。
+ *  - 打包态只能用编译产物（asar 外资源）。
+ */
 function resolveServerEntry() {
-  if (fs.existsSync(SERVER_ENTRY_BUILT)) return SERVER_ENTRY_BUILT;
   if (!app.isPackaged && fs.existsSync(SERVER_ENTRY_DEV)) return SERVER_ENTRY_DEV;
+  if (fs.existsSync(SERVER_ENTRY_BUILT)) return SERVER_ENTRY_BUILT;
   return null;
 }
 

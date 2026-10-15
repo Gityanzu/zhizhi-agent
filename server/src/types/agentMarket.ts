@@ -2,7 +2,7 @@
  * Agent 市场相关类型定义
  */
 
-import { CustomAgent } from './index';
+import type { CustomAgent } from '../services/customAgent';
 
 /**
  * 导出的 Agent 数据（用于分享和导入）

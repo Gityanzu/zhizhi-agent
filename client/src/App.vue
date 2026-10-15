@@ -7,8 +7,12 @@
 <script setup lang="ts">
 import UserSettings from '@/components/settings/UserSettings.vue'
 import { useUiStore } from '@/stores/ui'
+import { useAppCommands } from '@/composables/useAppCommands'
 
 const uiStore = useUiStore()
+
+// 桌面端应用菜单命令的统一入口（浏览器环境下内部自动降级为无操作）
+useAppCommands()
 
 function onSettingsSaved() {
   // 触发侧边栏刷新用户信息

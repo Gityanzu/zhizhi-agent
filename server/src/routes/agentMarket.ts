@@ -11,8 +11,8 @@ import {
   deleteTemplate,
   getCategories,
   validateAgentImport,
-  type AgentImport,
 } from '../services/agentMarket';
+import type { AgentImport } from '../types/agentMarket';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../middleware/auth';
 

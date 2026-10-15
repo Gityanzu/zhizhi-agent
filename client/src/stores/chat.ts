@@ -1,6 +1,15 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
+import { ElMessage } from 'element-plus';
 import { getToken } from '@/api/request';
+import { useAuthStore } from './auth';
+import {
+  getActiveApiKey,
+  refreshProviderModels,
+  setCurrentModel,
+  addCustomModel,
+  removeCustomModel,
+} from '@/api/userApiKey';
 import type { ChatMessage, SessionInfo, DocumentInfo, Folder, BranchInfo, ModelParams, CustomAgent, CustomTool, Collection, Provider, ProviderGroup, CompareResult, ModelInfo, SkillInfo } from '@/types';
 import { createTask, cancelTask, approveTask, planConfirmTask, sendMessageViaTask } from '@/api/task';
 import {
@@ -240,6 +249,127 @@ export const useChatStore = defineStore('chat', () => {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
   }
 
+  // 失败提示可能同时来自 error 与 status 两类事件（后端为兼容两种订阅都发了），
+  // 这里做幂等，避免同一句错误被追加两遍。
+  function appendTaskError(msg: any, reason: string) {
+    const text = `[错误] ${reason}`;
+    if (!msg.content || !msg.content.includes(text)) {
+      msg.content = msg.content ? `${msg.content}\n\n${text}` : text;
+    }
+    msg.isStreaming = false;
+  }
+
+  // 登录用户已配置的厂商信息（来自 /user-api-keys/active）
+  const authStore = useAuthStore();
+  const userProvider = ref<{
+    configured: boolean;
+    matched: boolean;
+    providerId: string | null;
+    providerName: string | null;
+    keyPrefix: string | null;
+    baseUrl: string | null;
+    warning: string | null;
+    /** 用户添加的自定义模型（厂商清单之外的 id） */
+    customModels: Array<{ provider: string; id: string }>;
+  } | null>(null);
+
+  /**
+   * 登录后按用户自己的 API Key 收窄模型列表。
+   *
+   * 用户只配了 DeepSeek 的 Key 时，下拉里就不该再出现百炼模型 —— 选了必然 401。
+   * 未登录或未配置 Key 时保持全局列表不变。
+   *
+   * 收窄失败（厂商不支持 / 无可用模型 / 刷新失败）必须留下 warning 供 UI 展示：
+   * 静默回退会让用户以为自己的 Key 已经生效。
+   */
+  async function applyUserScopedModels() {
+    if (!authStore.isAuthenticated) {
+      userProvider.value = null;
+      return;
+    }
+    try {
+      const res = await getActiveApiKey();
+      const info = res.data;
+      userProvider.value = {
+        configured: !!info.configured,
+        matched: info.matched !== false,
+        providerId: info.providerId,
+        providerName: info.providerName,
+        keyPrefix: info.keyPrefix,
+        baseUrl: info.baseUrl,
+        warning: info.warning || null,
+        customModels: info.customModels || [],
+      };
+      if (!info.configured || info.matched === false || !info.models?.length) {
+        if (info.warning) console.warn('[模型] 用户 Key 未能生效:', info.warning);
+        return;
+      }
+
+      if (info.groups?.length) modelGroups.value = info.groups;
+      availableModels.value = info.models;
+
+      // 后端返回的是「该用户真实生效的模型」（用户级偏好 + 自定义模型），
+      // 优先用它回填界面，避免下拉显示与真正发出去的模型不一致。
+      const preferred = info.currentModel
+        ? info.models.find((m: any) => m.id === info.currentModel)
+        : null;
+      if (preferred) {
+        currentModel.value = preferred;
+      } else {
+        // 只做本地视图收敛：/api/model/switch 改的是服务端进程级全局模型，多用户下
+        // A 登录会把 B 正在用的模型一起改掉。真正生效的厂商/模型由请求级凭据在
+        // 服务端 resolveProviderAndModel() 里决定，前端不需要（也不应该）写全局状态。
+        const currentId = currentModel.value?.id;
+        const stillValid = info.models.some((m: any) => m.id === currentId);
+        if (!stillValid) {
+          currentModel.value = info.models[0];
+        }
+      }
+    } catch (e) {
+      console.warn('读取用户模型配置失败，回退全局模型列表:', e);
+      userProvider.value = null;
+    }
+  }
+
+  const isRefreshingModels = ref(false);
+
+  /**
+   * 用当前用户的 Key 向厂商拉最新模型清单（下拉里的"刷新"）。
+   * 失败时保留原清单，并把原因写进 userProvider.warning —— 让用户看得见，而不是无声无息。
+   */
+  async function refreshUserProviderModels() {
+    if (isRefreshingModels.value) return null;
+
+    // 未登录时保持原有的 Ollama 刷新行为
+    if (!authStore.isAuthenticated) {
+      await refreshOllama();
+      return null;
+    }
+
+    isRefreshingModels.value = true;
+    try {
+      const res = await refreshProviderModels();
+      const data = res.data;
+      if (data.models?.length) {
+        availableModels.value = data.models;
+        if (data.groups?.length) modelGroups.value = data.groups;
+      }
+      if (userProvider.value) userProvider.value.warning = data.error || null;
+      return data;
+    } finally {
+      isRefreshingModels.value = false;
+    }
+  }
+
+  // 登录/登出后重新解析可用模型：loadModelInfo 只在应用启动时跑一次，
+  // 用户"先打开应用、后登录"时若不重算，模型列表会一直停留在全局那份。
+  watch(() => authStore.isAuthenticated, (loggedIn) => {
+    // 登出也必须重算：loadModelInfo 会先拉回全局清单，已登录时再按用户收窄。
+    // 只调 applyUserScopedModels 的话，登出后会残留上一个账号的模型列表。
+    if (loggedIn) applyUserScopedModels().catch(() => {});
+    else loadModelInfo().catch(() => {});
+  });
+
   // 加载模型信息
   async function loadModelInfo() {
     try {
@@ -262,9 +392,31 @@ export const useChatStore = defineStore('chat', () => {
         count: availableModels.value.length,
         groups: modelGroups.value.length
       });
+
+      // 登录用户：按自己的 API Key 收窄可选模型（未登录时保持全局列表）
+      await applyUserScopedModels();
     } catch (e) {
       console.error('加载模型信息失败:', e);
     }
+  }
+
+  /**
+   * 用户级切换：写 user_model_preferences，请求时随凭据在服务端生效。
+   * 返回结构对齐全局接口（/api/model/switch），调用方无需区分。
+   */
+  async function switchUserModel(modelId: string, providerId?: string) {
+    await setCurrentModel(modelId, providerId);
+    const found = availableModels.value.find((m: any) => m.id === modelId);
+    const model = found || {
+      id: modelId,
+      name: modelId,
+      description: '',
+      provider: userProvider.value?.providerName || '',
+      providerId: providerId || userProvider.value?.providerId || '',
+      providerName: userProvider.value?.providerName || '',
+      free: false,
+    };
+    return { success: true, model };
   }
 
   // 切换模型
@@ -272,7 +424,12 @@ export const useChatStore = defineStore('chat', () => {
     if (isSwitchingModel.value) return;
     isSwitchingModel.value = true;
     try {
-      const result = await apiSwitchModel(modelId, providerId);
+      // 登录且已配置自己的 Key：走用户级偏好（请求级生效，且不会改到别人的模型）；
+      // 否则回退全局 /api/model/switch（未登录 / 单机场景）。
+      const userScoped = authStore.isAuthenticated && !!userProvider.value?.configured;
+      const result = userScoped
+        ? await switchUserModel(modelId, providerId)
+        : await apiSwitchModel(modelId, providerId);
       if (result.success) {
         currentModel.value = result.model;
         // 更新当前会话的模型字段
@@ -287,6 +444,22 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       isSwitchingModel.value = false;
     }
+  }
+
+  /** 添加自定义模型（厂商清单之外的 id）并切换过去 */
+  async function addUserCustomModel(modelId: string, providerId?: string) {
+    const res = await addCustomModel(modelId, providerId);
+    await applyUserScopedModels();
+    const hit = availableModels.value.find((m: any) => m.id === res.data.modelId);
+    if (hit) currentModel.value = hit;
+    return res.data;
+  }
+
+  /** 删除自定义模型 */
+  async function removeUserCustomModel(modelId: string) {
+    const res = await removeCustomModel(modelId);
+    await applyUserScopedModels();
+    return res.data;
   }
 
   // 功能10：重新检测 Ollama 模型
@@ -570,6 +743,7 @@ export const useChatStore = defineStore('chat', () => {
           agentTrace: m.agent_trace || m.agentTrace,
           parentId: m.parent_id || m.parentId,
           branchId: m.branch_id || m.branchId,
+          artifacts: m.artifacts || [],
         }));
         // 当前分支 = 最后一条消息所属分支
         const last = detail.messages[detail.messages.length - 1];
@@ -592,10 +766,11 @@ export const useChatStore = defineStore('chat', () => {
       }
       // 下一帧重置标志位
       setTimeout(() => { isRestoringSession = false; }, 0);
-    } catch (e) {
+    } catch (e: any) {
       console.error('加载会话历史失败:', e);
+      ElMessage.error(e?.response?.data?.error || '打开会话失败，请检查网络或刷新重试');
     }
-    
+
     // 加载会话用量统计
     loadSessionUsage(id).catch(() => {});
   }
@@ -620,6 +795,7 @@ export const useChatStore = defineStore('chat', () => {
           agentTrace: m.agent_trace || m.agentTrace,
           parentId: m.parent_id || m.parentId,
           branchId: m.branch_id || m.branchId,
+          artifacts: m.artifacts || [],
         }));
       }
     } catch (e) {
@@ -689,7 +865,18 @@ export const useChatStore = defineStore('chat', () => {
             case 'token':
               msg.content += chunk.content;
               break;
-            case 'tool_call':
+            case 'tool_call': {
+              // 工具轮次开头会先流一段文字（此刻还不知道这轮会不会调工具），到
+              // tool_call 到达时它已经混进正文了。按定义"带工具调用的那轮文字"
+              // 只是动作前的说明、不是最终回答，所以整段挪进思考过程（可折叠），
+              // 正文只留真正没有工具调用的那一轮。
+              // 不搬走的话，多轮前言会一条条堆在正文里 —— 实测堆出四句
+              // 「好的，我来为你生成…」，看起来像模型在自言自语、任务没做完。
+              const preamble = msg.content;
+              if (preamble.trim()) {
+                msg.content = '';
+                msg.thinking = (msg.thinking || '') + preamble;
+              }
               if (chunk.toolCall) {
                 msg.toolCalls?.push({
                   name: chunk.toolCall.name,
@@ -698,13 +885,23 @@ export const useChatStore = defineStore('chat', () => {
                 });
               }
               break;
-            case 'tool_result':
+            }
+            case 'tool_result': {
               const toolCalls = msg.toolCalls;
               const lastToolCall = toolCalls?.[toolCalls.length - 1];
               if (lastToolCall) {
                 lastToolCall.result = chunk.content;
               }
+              // 工具产出文件：挂到本条消息上，正文之后渲染成文件卡片。
+              // 按路径去重：同一文件"先创建后追加"只会收到一条。
+              if (chunk.artifacts?.length) {
+                if (!msg.artifacts) msg.artifacts = [];
+                for (const a of chunk.artifacts) {
+                  if (!msg.artifacts.some((x) => x.path === a.path)) msg.artifacts.push(a);
+                }
+              }
               break;
+            }
             case 'retrieval':
               if (chunk.sources) {
                 msg.sources = chunk.sources;
@@ -733,6 +930,7 @@ export const useChatStore = defineStore('chat', () => {
                   inRoot: chunk.inRoot ?? false,
                   oldContent: chunk.oldContent,
                   newContent: chunk.newContent,
+                  description: chunk.description,
                   taskId: chunk.taskId,
                 };
               }
@@ -748,8 +946,32 @@ export const useChatStore = defineStore('chat', () => {
                 };
               }
               break;
+            case 'error':
+              // 后端在任务异常时补发的原因（如"额度不足/Key 无效"），必须落到气泡里
+              appendTaskError(msg, (chunk as any).content || '任务执行失败');
+              error.value = (chunk as any).content || '任务执行失败';
+              break;
+
+            case 'status':
+              // 任务收尾状态：failed 时原因在 error 字段里。
+              // 此前完全没处理 status，于是模型 403（免费额度耗尽）时用户只看到
+              // 一个空白气泡、反复重发也没反应 —— 失败必须让用户看见。
+              if ((chunk as any).status === 'failed') {
+                const reason = (chunk as any).error || '任务失败，请稍后重试';
+                appendTaskError(msg, reason);
+                error.value = reason;
+              } else if ((chunk as any).status === 'cancelled') {
+                msg.isStreaming = false;
+              }
+              break;
+
             case 'done':
               msg.isStreaming = false;
+              // done 只有在「轮次用尽、任务被截断」时才会带 content。
+              // 必须显示出来，否则对话会毫无征兆地停住，用户完全不知道原因
+              if ((chunk as any).content) {
+                msg.content += msg.content ? `\n\n${(chunk as any).content}` : (chunk as any).content;
+              }
               if ((chunk as any).tokenUsage) {
                 lastTokenUsage.value = (chunk as any).tokenUsage;
               }
@@ -925,7 +1147,14 @@ export const useChatStore = defineStore('chat', () => {
               msg.content += chunk.content;
               break;
 
-            case 'tool_call':
+            case 'tool_call': {
+              // 同另一处流式处理：带工具调用的那轮文字只是动作前的说明，
+              // 整段挪进思考过程，避免多轮前言堆成一条自言自语的消息
+              const preamble = msg.content;
+              if (preamble.trim()) {
+                msg.content = '';
+                msg.thinking = (msg.thinking || '') + preamble;
+              }
               if (chunk.toolCall) {
                 msg.toolCalls?.push({
                   name: chunk.toolCall.name,
@@ -934,14 +1163,24 @@ export const useChatStore = defineStore('chat', () => {
                 });
               }
               break;
+            }
 
-            case 'tool_result':
+            case 'tool_result': {
               const toolCalls = msg.toolCalls;
               const lastToolCall = toolCalls?.[toolCalls.length - 1];
               if (lastToolCall) {
                 lastToolCall.result = chunk.content;
               }
+              // 工具产出文件：挂到本条消息上，正文之后渲染成文件卡片。
+              // 按路径去重：同一文件"先创建后追加"只会收到一条。
+              if (chunk.artifacts?.length) {
+                if (!msg.artifacts) msg.artifacts = [];
+                for (const a of chunk.artifacts) {
+                  if (!msg.artifacts.some((x) => x.path === a.path)) msg.artifacts.push(a);
+                }
+              }
               break;
+            }
 
             case 'retrieval':
               if (chunk.sources) {
@@ -985,6 +1224,7 @@ export const useChatStore = defineStore('chat', () => {
                   inRoot: chunk.inRoot ?? false,
                   oldContent: chunk.oldContent,
                   newContent: chunk.newContent,
+                  description: chunk.description,
                   taskId: chunk.taskId,
                 };
               }
@@ -1004,6 +1244,10 @@ export const useChatStore = defineStore('chat', () => {
             case 'done':
               msg.isStreaming = false;
               // 处理 done 事件中的额外数据
+              // content 仅出现在「轮次用尽、任务被截断」时，必须呈现给用户
+              if ((chunk as any).content) {
+                msg.content += msg.content ? `\n\n${(chunk as any).content}` : (chunk as any).content;
+              }
               if ((chunk as any).tokenUsage) {
                 lastTokenUsage.value = (chunk as any).tokenUsage;
               }
@@ -1023,9 +1267,19 @@ export const useChatStore = defineStore('chat', () => {
               break;
 
             case 'error':
-              msg.isStreaming = false;
-              msg.content += `\n\n[错误] ${chunk.content}`;
-              error.value = chunk.content;
+              appendTaskError(msg, chunk.content || '任务执行失败');
+              error.value = chunk.content || '任务执行失败';
+              break;
+
+            case 'status':
+              // 同 sendMessage：failed 的成因必须落到气泡里，否则用户看到空白对话
+              if ((chunk as any).status === 'failed') {
+                const reason = (chunk as any).error || '任务失败，请稍后重试';
+                appendTaskError(msg, reason);
+                error.value = reason;
+              } else if ((chunk as any).status === 'cancelled') {
+                msg.isStreaming = false;
+              }
               break;
           }
         },
@@ -1491,6 +1745,9 @@ export const useChatStore = defineStore('chat', () => {
     modelGroups,
     ollamaAvailable,
     isRefreshingOllama,
+    // 用户级模型配置（登录后按用户 API Key 的厂商收窄）
+    userProvider,
+    isRefreshingModels,
     // 功能11
     compareMode,
     compareResults,
@@ -1535,6 +1792,10 @@ export const useChatStore = defineStore('chat', () => {
     loadModelInfo,
     switchModel,
     refreshOllama,
+    applyUserScopedModels,
+    refreshUserProviderModels,
+    addUserCustomModel,
+    removeUserCustomModel,
     setCompareMode,
     startCompare,
     stopCompare,
@@ -1556,6 +1817,9 @@ export const useChatStore = defineStore('chat', () => {
     loadBranches,
     editMessage,
     respondApproval,
+    // respondPlan 之前只定义、没导出：ChatArea 调 chatStore.respondPlan 恒为 undefined，
+    // 「Plan 前置确认」点确认/取消都会抛 TypeError（与 MessageItem 里 message.id 是同一处流程的两个坑）
+    respondPlan,
     stopGeneration,
     regenerate,
     removeSession,

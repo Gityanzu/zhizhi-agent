@@ -1,7 +1,7 @@
 import { getLLM, getLLMWithParams } from './llm';
 import { hybridSearch } from './vectorStore';
 import { config } from '../config';
-import { AgentStep, RetrievalResult } from '../types';
+import { AgentStep, RetrievalResult, type MessageArtifact } from '../types';
 import {
   SystemMessage,
   HumanMessage,
@@ -13,14 +13,25 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import { executeCode } from './codeExecutor';
 import { gateToolExecution } from './toolPolicy';
+import { buildIterationExhaustedNotice, buildStuckLoopNotice } from './agentLimits';
+import {
+  pickToolCallDeltas,
+  createToolCallEntry,
+  mergeToolCallDelta,
+  parseCollectedToolCall,
+  missingRequiredArgs,
+} from './toolArgs';
 import { getDynamicTools, executeCustomTool, type CustomTool } from './customTool';
+import { listMcpTools, executeMcpTool } from './mcpBridge';
 import {
   webNavigate, webClick, webType, webScreenshot, webExtractText,
 } from './browserTool';
 import { textToSQLAndExecute } from './dbQuery';
 import { getAgentOutputDir } from './agentOutput';
+import { buildHistoryMessages, type HistoryMessage } from './history';
 import { parseFile as parseDocumentFile } from './document';
 import { resolveTarget, classify, isSensitive, getWorkspaceDir, type FileOperation } from './filePermission';
+import { isFullAccess } from './permissionMode';
 import { indexCodebase, searchCodebase } from './codeIndex';
 import { randomUUID } from 'crypto';
 
@@ -237,7 +248,7 @@ export const tools: ToolDefinition[] = [
   // ===== 代码解释器 =====
   {
     name: 'code_interpreter',
-    description: '执行 Python 或 JavaScript 代码。当用户需要数据处理、图表绘制、算法实现、数学可视化等计算任务时使用此工具。支持 matplotlib 图表输出。',
+    description: '执行 Python 或 JavaScript 代码。当用户需要数据处理、图表绘制、算法实现、数学可视化等计算任务时使用此工具。支持 matplotlib 图表输出。注意：脚本在临时目录中执行，运行结束后该目录会被删除，因此需要保留的文件必须写绝对路径 —— 统一用 os.environ["ZHI_OUTPUT_DIR"]（Python）或 process.env.ZHI_OUTPUT_DIR（JavaScript）拼接，不要凭记忆写死路径。',
     parameters: {
       type: 'object',
       properties: {
@@ -340,6 +351,86 @@ export interface ToolContext {
   sessionId?: string;    // 供"本次会话始终允许"记住授权范围
   // 请求用户审批：返回 true=允许，false=拒绝。未提供时 ask 一律安全默认拒绝。
   requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
+  // 文件写入成功后登记产物（消息末尾的文件卡片）。只有工具执行处知道最终绝对路径，
+  // 所以必须在这里回调，而不是靠事后解析工具返回的文案。
+  onArtifact?: (artifact: MessageArtifact) => void;
+}
+
+/**
+ * 登记一个"本轮生成的文件"。
+ * 大小取磁盘真实字节数（工具返回里的"字符数"不是字节数，中文文件会差出好几倍）。
+ * 拿不到 stat（文件刚被删除/权限不足）也要让卡片出现，只是不显示体积 ——
+ * 比整条产物凭空消失更容易排查。
+ */
+function recordArtifact(context: ToolContext | undefined, filePath: string, source: string): void {
+  if (!context?.onArtifact) return;
+  const base = { path: filePath, name: path.basename(filePath), kind: 'file' as const, source };
+  try {
+    context.onArtifact({ ...base, size: fs.statSync(filePath).size });
+  } catch {
+    context.onArtifact(base);
+  }
+}
+
+/**
+ * 补齐 Agent 本轮运行产出、但未被文件工具显式登记的文件。
+ * 场景：code_interpreter / exec 等工具通过 Python 库（docx/pdf/xlsx）生成多份文件，
+ * 只有最终用 create_file/write_file 写的那一份会被 recordArtifact，其余文件会"漏"掉。
+ * 通过扫描本轮运行实际使用的输出根目录（聊天场景下为 总目录/chats/YYYY-MM-DD），
+ * 把运行期间（runStartTime 之后）新建/修改的文件补充进 artifacts。
+ * root 由调用方在 run 启动时捕获并传入，避免 AsyncLocalStorage 在尾声中丢失上下文导致扫错目录。
+ */
+function collectOutputArtifacts(
+  artifacts: MessageArtifact[],
+  runStartTime: number,
+  outputRoot?: string,
+  maxDepth = 2
+): MessageArtifact[] {
+  const root = outputRoot || getAgentOutputDir();
+  const result = [...artifacts];
+  const seen = new Set(result.map((a) => a.path));
+  const bufferMs = 1000; // 允许工具启动前的少量文件也被纳入
+  let scanned = 0;
+  const MAX_SCAN = 400;
+
+  function walk(dir: string, depth: number) {
+    if (depth > maxDepth || scanned >= MAX_SCAN) return;
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (scanned >= MAX_SCAN) return;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath, depth + 1);
+        continue;
+      }
+      scanned++;
+      if (seen.has(fullPath)) continue;
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(fullPath);
+      } catch {
+        continue;
+      }
+      if (stat.mtimeMs >= runStartTime - bufferMs) {
+        recordArtifact(
+          { onArtifact: (a) => { if (!result.some((x) => x.path === a.path)) result.push(a); } },
+          fullPath,
+          'output_scan'
+        );
+      }
+    }
+  }
+
+  walk(root, 0);
+  if (result.length > artifacts.length) {
+    console.log(`[artifacts] 输出目录扫描补齐 ${result.length - artifacts.length} 个文件（root=${root}）`);
+  }
+  return result;
 }
 
 export async function executeTool(
@@ -401,6 +492,10 @@ export async function executeTool(
     case 'parse_document':
       return await executeParseDocument(args.filename, context);
     default:
+      // MCP 连接器工具（mcp_ 前缀）→ 转发到对应 MCP 服务器
+      if (toolName.startsWith('mcp_')) {
+        return await executeMcpTool(toolName, args);
+      }
       // 尝试自定义工具
       return await executeCustomTool(toolName, args);
   }
@@ -702,6 +797,7 @@ async function executeCreateFile(filename: string, content: string, dir?: string
     }
     ensureParentDir(filePath);
     fs.writeFileSync(filePath, content, 'utf-8');
+    recordArtifact(context, filePath, 'create_file');
     return `文件创建成功！\n文件名: ${filename}\n路径: ${filePath}\n大小: ${content.length} 字符`;
   } catch (error) {
     return `创建失败: ${error instanceof Error ? error.message : String(error)}`;
@@ -732,6 +828,7 @@ async function executeWriteFile(filename: string, content: string, dir?: string,
     const existed = fs.existsSync(filePath);
     ensureParentDir(filePath);
     fs.writeFileSync(filePath, content, 'utf-8');
+    recordArtifact(context, filePath, 'write_file');
     return `${existed ? '文件已覆盖更新' : '文件创建成功'}！\n文件名: ${filename}\n路径: ${filePath}\n大小: ${content.length} 字符`;
   } catch (error) {
     return `写入失败: ${error instanceof Error ? error.message : String(error)}`;
@@ -753,6 +850,7 @@ async function executeAppendFile(filename: string, content: string, dir?: string
     const filePath = access.absPath;
     if (!fs.existsSync(filePath)) return `文件不存在: ${filePath}，请先创建`;
     fs.appendFileSync(filePath, content, 'utf-8');
+    recordArtifact(context, filePath, 'append_file');
     return `内容已追加到 ${filePath}\n追加大小: ${content.length} 字符`;
   } catch (error) {
     return `追加失败: ${error instanceof Error ? error.message : String(error)}`;
@@ -904,9 +1002,9 @@ async function executeGit(
     if (!approved) return `用户已拒绝访问目录：${target.absPath}`;
   }
 
-  // 写子命令需审批
+  // 写子命令需审批；完全访问下不再逐次确认（否则会出现"文件已放开、git 还在弹窗"的割裂体验）
   const isWrite = !GIT_READ_SUBCOMMANDS.has(sub);
-  if (isWrite && context?.requestApproval) {
+  if (isWrite && context?.requestApproval && !isFullAccess()) {
     const approved = await context.requestApproval({
       requestId: randomUUID(),
       kind: 'write',
@@ -991,6 +1089,13 @@ async function executeSummarize(text: string, maxLength?: string): Promise<strin
 
 // 代码解释器工具
 async function executeCodeInterpreter(code: string, language: string): Promise<string> {
+  // 最后一道防线：参数缺失时给一句"照着改就行"的提示。
+  // 不拦的话会一路走到 fs.writeFileSync(path, undefined)，
+  // 抛出 "The \"data\" argument must be of type string..." —— 模型完全看不懂这个报错，
+  // 只能反复重试同一个调用（实测出现过连续 3 轮）
+  if (typeof code !== 'string' || !code.trim()) {
+    return '代码执行失败：缺少必填参数 code（需要提供完整的代码字符串）。请重新调用 code_interpreter，并确保 code 是字符串。';
+  }
   try {
     const lang: 'python' | 'javascript' = (language === 'javascript' || language === 'js') ? 'javascript' : 'python';
     const result = await executeCode(code, lang);
@@ -1057,6 +1162,10 @@ export function getBuiltinToolNames(): string[] {
 
 function buildToolsDescription(toolList: ToolDefinition[]): string {
   let desc = toolList.map(t => `- ${t.name}: ${t.description}`).join('\n');
+  // 输出根目录必须每轮显式告知模型。code_interpreter 是在临时目录里执行的、跑完即清理，
+  // 脚本只能写绝对路径，而模型唯一可靠的路径来源就是这里。不告知的话它会沿用历史消息里
+  // 出现过的旧路径 —— "用户在设置里改了输出目录，产物却仍落在旧目录" 就是这么来的。
+  desc += `\n\n当前文件输出根目录：${getAgentOutputDir()}\n所有需要落盘的文件都必须写到该目录：传相对路径时即相对它解析；在 code_interpreter 中请用 os.environ['ZHI_OUTPUT_DIR']（Python）或 process.env.ZHI_OUTPUT_DIR（JavaScript）拼接输出路径。禁止使用历史消息里出现过的其它目录。`;
   const wsDir = getWorkspaceDir();
   if (wsDir && (config.isDesktop || config.agent?.allowWebWorkspace)) {
     desc += `\n\n当前代码工作区目录：${wsDir}。git 工具可省略 cwd 直接作用于该工作区；create_file/write_file/read_file 等文件工具可传入该目录下的绝对路径来读写真实代码库。工作区内的写操作仍需用户审批。`;
@@ -1067,7 +1176,19 @@ function buildToolsDescription(toolList: ToolDefinition[]): string {
 // 合并内置工具和动态自定义工具，并按自定义Agent配置过滤
 async function resolveAvailableTools(customAgent?: CustomAgentConfig): Promise<ToolDefinition[]> {
   const dynamicTools = await getDynamicTools();
-  let allTools = [...tools, ...dynamicTools];
+  // MCP 连接器工具：枚举启用的 MCP 服务器暴露的 tools，桥接为普通工具定义。
+  // 枚举失败（连接器离线）只告警跳过，不影响其他工具。
+  let mcpTools: ToolDefinition[] = [];
+  try {
+    mcpTools = (await listMcpTools()).map((t) => ({
+      name: t.toolName,
+      description: t.description,
+      parameters: t.inputSchema,
+    }));
+  } catch (e: any) {
+    console.warn('[agent] 枚举 MCP 工具失败:', e?.message || e);
+  }
+  let allTools = [...tools, ...dynamicTools, ...mcpTools];
 
   if (customAgent?.tools && customAgent.tools.length > 0) {
     const allowed = new Set(customAgent.tools);
@@ -1100,7 +1221,7 @@ function buildLLMForAgent(customAgent?: CustomAgentConfig): ChatOpenAI {
 // 构建初始消息
 function buildInitialMessages(
   userMessage: string,
-  chatHistory: Array<{ role: string; content: string }>,
+  chatHistory: HistoryMessage[],
   toolList: ToolDefinition[],
   customSystemPrompt?: string
 ): any[] {
@@ -1109,9 +1230,7 @@ function buildInitialMessages(
     : SYSTEM_PROMPT.replace('{tools_description}', buildToolsDescription(toolList));
   return [
     new SystemMessage(sysPrompt),
-    ...chatHistory.slice(-6).map(m =>
-      m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
-    ),
+    ...buildHistoryMessages(chatHistory, 6),
     new HumanMessage(userMessage),
   ];
 }
@@ -1149,10 +1268,33 @@ function truncateToolResult(toolName: string, result: string): string {
   return result.slice(0, maxLength) + `\n...（结果已截断，共${result.length}字符）`;
 }
 
+/* 构造「声明了工具调用」的 assistant 消息。
+   必须把 tool_calls 同时写进 additional_kwargs：本项目使用的 @langchain/openai 在把
+   消息转成请求体时只读 message.additional_kwargs.tool_calls（见其内部
+   messages.map(...) 那段），仅设置顶层 tool_calls 会被静默丢弃。这样一来，紧随其后的
+   tool 消息就成了「没有对应 tool_calls 的孤立消息」，模型侧直接返回 400：
+   「Messages with role 'tool' must be a response to a preceding message with 'tool_calls'」。
+   双写是为了同时兼容读取顶层字段的新版实现。 */
+export function buildToolCallAIMessage(toolCall: any, content = ''): AIMessage {
+  return new AIMessage({
+    content,
+    additional_kwargs: { tool_calls: [toolCall] },
+    tool_calls: [toolCall],
+  });
+}
+
+/* 工具调用参数的解析与校验在 ./toolArgs —— 那段逻辑最容易出错，抽成纯函数才测得动 */
+
+/** 从工具 schema 派生必填参数，避免手工维护一份会过期的清单 */
+function requiredArgsOf(toolName: string): string[] {
+  const def = tools.find((t) => t.name === toolName);
+  return ((def?.parameters as any)?.required as string[]) || [];
+}
+
 // Agent 执行循环核心（通过回调支持流式和非流式两种输出）
 async function runAgentLoop(
   userMessage: string,
-  chatHistory: Array<{ role: string; content: string }>,
+  chatHistory: HistoryMessage[],
   callbacks: {
     onToolCall?: (toolName: string, toolArgs: Record<string, any>) => void;
     onToolResult?: (toolName: string, toolResult: string) => void;
@@ -1165,17 +1307,26 @@ async function runAgentLoop(
     sessionId?: string;
     requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
   }
-): Promise<{ answer: string; sources: RetrievalResult[]; tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
+): Promise<{ answer: string; sources: RetrievalResult[]; tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number }; artifacts: MessageArtifact[] }> {
   const availableTools = await resolveAvailableTools(customAgent);
   const messages = buildInitialMessages(userMessage, chatHistory, availableTools, customAgent?.systemPrompt);
   const allSources: RetrievalResult[] = [];
   const llm = buildLLMForAgent(customAgent);
   const collectionIds = options?.collectionIds;
+  // 非流式路径同样要登记产物：/api/chat/send 走的这里，落库后才能显示文件卡片
+  const artifacts: MessageArtifact[] = [];
+  const runStartTime = Date.now();
+  // 运行启动时捕获输出根目录：尾声的产物扫描可能已脱离 AsyncLocalStorage 上下文，
+  // 此时再读 getAgentOutputDir() 会拿到错误目录（扫不到本轮生成的文件）
+  const outputRoot = getAgentOutputDir();
   const toolContext: ToolContext = {
     collectionIds,
     isDesktop: options?.isDesktop,
     sessionId: options?.sessionId,
     requestApproval: options?.requestApproval,
+    onArtifact: (a) => {
+      if (!artifacts.some((x) => x.path === a.path)) artifacts.push(a);
+    },
   };
   let iteration = 0;
   let totalPromptTokens = 0;
@@ -1215,20 +1366,43 @@ async function runAgentLoop(
           || toolCall.tool_name;
         
         let toolArgs: Record<string, any> = {};
+        // 与流式路径同一原则：解析失败不要静默回落成空对象，否则工具会拿着
+        // undefined 去执行并抛出与真实原因无关的内部错误
+        let argError: string | null = null;
 
         try {
-          const argsStr = toolCall.function?.arguments 
-            || toolCall.arguments 
-            || toolCall.function_call?.arguments 
-            || toolCall.parameters 
+          const argsStr = toolCall.function?.arguments
+            || toolCall.arguments
+            || toolCall.function_call?.arguments
+            || toolCall.parameters
             || '{}';
           toolArgs = typeof argsStr === 'string' ? JSON.parse(argsStr) : argsStr;
-        } catch {
+        } catch (e) {
           toolArgs = {};
+          argError = `参数不是合法 JSON（${e instanceof Error ? e.message : String(e)}）`;
         }
 
         if (!toolName) {
           console.warn('[Agent] 无法解析工具名称:', JSON.stringify(toolCall).substring(0, 300));
+          continue;
+        }
+
+        const missing = argError ? [] : missingRequiredArgs(toolArgs, requiredArgsOf(toolName));
+        const invalidReason = argError
+          || (missing.length ? `缺少必填参数：${missing.join('、')}` : null);
+
+        if (invalidReason) {
+          const message = `工具「${toolName}」本次未执行。原因：${invalidReason}。请重新发起调用，确保参数是合法 JSON 且包含全部必填字段。`;
+          console.warn(`[Agent] ${message}`);
+          callbacks.onToolCall?.(toolName, {});
+          callbacks.onToolResult?.(toolName, message);
+          const failedCall: any = {
+            id: toolCall.id || `call_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            type: 'function',
+            function: { name: toolName, arguments: '{}' },
+          };
+          messages.push(buildToolCallAIMessage(failedCall));
+          messages.push(new ToolMessage({ tool_call_id: failedCall.id, content: message }));
           continue;
         }
 
@@ -1249,10 +1423,10 @@ async function runAgentLoop(
           type: 'function',
           function: {
             name: toolName,
-            arguments: typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs)
+            arguments: JSON.stringify(toolArgs)
           }
         };
-        messages.push(new AIMessage({ content: '', tool_calls: [standardToolCall] }));
+        messages.push(buildToolCallAIMessage(standardToolCall));
         messages.push(new ToolMessage({ tool_call_id: standardToolCall.id, content: toolResult }));
       }
     } else {
@@ -1261,6 +1435,7 @@ async function runAgentLoop(
       return {
         answer,
         sources: allSources,
+        artifacts: collectOutputArtifacts(artifacts, runStartTime, outputRoot),
         tokenUsage: {
           promptTokens: totalPromptTokens,
           completionTokens: totalCompletionTokens,
@@ -1270,11 +1445,13 @@ async function runAgentLoop(
     }
   }
 
-  const timeoutAnswer = '抱歉，处理您的问题时超出了最大迭代次数，请简化问题后重试。';
-  callbacks.onFinalAnswer?.(timeoutAnswer);
+  // 与流式分支保持一致的措辞：说清是轮次用尽，而不是含糊的"超时"
+  const exhaustedAnswer = buildIterationExhaustedNotice(iteration);
+  callbacks.onFinalAnswer?.(exhaustedAnswer);
   return {
-    answer: timeoutAnswer,
+    answer: exhaustedAnswer,
     sources: allSources,
+    artifacts: collectOutputArtifacts(artifacts, runStartTime, outputRoot),
     tokenUsage: {
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,
@@ -1286,7 +1463,7 @@ async function runAgentLoop(
 // 非流式 Agent 执行
 export async function agentRun(
   userMessage: string,
-  chatHistory: Array<{ role: string; content: string }> = [],
+  chatHistory: HistoryMessage[] = [],
   options?: {
     sessionId?: string;
     messageId?: string;
@@ -1300,11 +1477,12 @@ export async function agentRun(
   steps: AgentStep[];
   sources: RetrievalResult[];
   tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  artifacts: MessageArtifact[];
 }> {
   const steps: AgentStep[] = [];
   const toolCallStartTimes = new Map<string, number>();
 
-  const { answer, sources, tokenUsage } = await runAgentLoop(userMessage, chatHistory, {
+  const { answer, sources, tokenUsage, artifacts } = await runAgentLoop(userMessage, chatHistory, {
     onToolCall: (toolName, toolArgs) => {
       toolCallStartTimes.set(toolName, Date.now());
       steps.push({
@@ -1347,13 +1525,13 @@ export async function agentRun(
     requestApproval: options?.requestApproval,
   });
 
-  return { answer, steps, sources, tokenUsage };
+  return { answer, steps, sources, tokenUsage, artifacts };
 }
 
 // 流式 Agent 执行（保留真正的流式输出，使用公共辅助函数减少重复）
 export async function* agentRunStream(
   userMessage: string,
-  chatHistory: Array<{ role: string; content: string }> = [],
+  chatHistory: HistoryMessage[] = [],
   customAgent?: CustomAgentConfig,
   options?: {
     collectionIds?: string[];
@@ -1361,21 +1539,50 @@ export async function* agentRunStream(
     sessionId?: string;
     requestApproval?: (req: ApprovalRequest) => Promise<boolean>;
   }
-): AsyncGenerator<{ type: string; content: string; toolCall?: any; sources?: RetrievalResult[]; tokenUsage?: any }> {
+): AsyncGenerator<{
+  type: string;
+  content: string;
+  toolCall?: any;
+  sources?: RetrievalResult[];
+  tokenUsage?: any;
+  /** 仅 done 事件：本次运行因"轮次预算耗尽"被截断（下游据此判定任务未完成） */
+  incomplete?: boolean;
+  /** 仅 done 事件：实际消耗的轮次，便于日志与排障 */
+  toolRounds?: number;
+  /** 仅 tool_result 事件：这次工具调用新产出的文件（供前端实时挂出文件卡片） */
+  artifacts?: MessageArtifact[];
+}> {
   const availableTools = await resolveAvailableTools(customAgent);
   const messages = buildInitialMessages(userMessage, chatHistory, availableTools, customAgent?.systemPrompt);
   const allSources: RetrievalResult[] = [];
   const llm = buildLLMForAgent(customAgent);
   const collectionIds = options?.collectionIds;
+  // 本次运行产出的文件：登记后随 tool_result 下发，taskRunner 再落库到 messages.artifacts
+  const artifacts: MessageArtifact[] = [];
+  const runStartTime = Date.now();
+  // 运行启动时捕获输出根目录：尾声的产物扫描可能已脱离 AsyncLocalStorage 上下文，
+  // 此时再读 getAgentOutputDir() 会拿到错误目录（扫不到本轮生成的文件）
+  const outputRoot = getAgentOutputDir();
   const toolContext: ToolContext = {
     collectionIds,
     isDesktop: options?.isDesktop,
     sessionId: options?.sessionId,
     requestApproval: options?.requestApproval,
+    onArtifact: (a) => {
+      // 同一路径只留一条：模型常见的"先 create 再 append"会把同一个文件登记两次，
+      // 卡片列表里出现重复项比少一项更让人困惑
+      if (!artifacts.some((x) => x.path === a.path)) artifacts.push(a);
+    },
   };
   let iteration = 0;
   let totalPromptTokens = 0;
   let totalCompletionTokens = 0;
+
+  // 同一「工具 + 完全相同参数」的重复次数。用来识别模型卡在同一个失败调用上：
+  // 不拦的话它会一直重试到轮次上限（实测出现过连续 19 轮，其中 3 轮参数为空）。
+  const attemptCounts = new Map<string, number>();
+  const MAX_IDENTICAL_TOOL_ATTEMPTS = 3;
+  let stuckSignature: string | null = null;
 
   while (iteration < config.agent.maxIterations) {
     iteration++;
@@ -1394,12 +1601,8 @@ export async function* agentRunStream(
       lastChunk = chunk;
       const content = typeof chunk.content === 'string' ? chunk.content : '';
 
-      // 检测是否有 tool_calls（支持多种模型格式）
-      const rawToolCalls = (chunk as any)?.message_tool_calls 
-        || (chunk as any)?.additional_kwargs?.tool_calls 
-        || (chunk as any)?.tool_calls 
-        || ((chunk as any)?.function_call ? [(chunk as any).function_call] : null);
-      const chunkToolCalls = Array.isArray(rawToolCalls) ? rawToolCalls.filter(Boolean) : [];
+      // 检测是否有 tool_calls（支持多种模型格式；空数组不再短路后续字段）
+      const chunkToolCalls = pickToolCallDeltas(chunk);
       
       if (chunkToolCalls.length > 0) {
         hasToolCalls = true;
@@ -1423,26 +1626,12 @@ export async function* agentRunStream(
           });
           
           if (existingIdx >= 0) {
-            // 合并同一个工具调用的参数
-            const existing = collectedToolCalls[existingIdx];
-            // 合并function.arguments（增量字符串）
-            if (tc.function?.arguments) {
-              existing.function = existing.function || {};
-              existing.function.arguments = (existing.function.arguments || '') + tc.function.arguments;
-            }
-            // 合并arguments（增量字符串）
-            if (tc.arguments && typeof tc.arguments === 'string') {
-              existing.arguments = (existing.arguments || '') + tc.arguments;
-            }
-            // 合并其他字段
-            if (tc.id && !existing.id) existing.id = tc.id;
-            if (tc.index !== undefined && existing.index === undefined) existing.index = tc.index;
-            if (tcName && !existing.function?.name && !existing.name) {
-              if (!existing.function) existing.function = {};
-              existing.function.name = tcName;
-            }
+            // 合并同一个工具调用的参数分片
+            mergeToolCallDelta(collectedToolCalls[existingIdx], tc);
           } else {
-            collectedToolCalls.push({ ...tc });
+            // 新条目用空壳起步再合并，避免 `{...tc}` 把首片参数复制一遍、
+            // 随后合并时又追加一次，造成参数重复而 JSON 解析失败
+            collectedToolCalls.push(createToolCallEntry(tc));
           }
         }
       }
@@ -1478,30 +1667,63 @@ export async function* agentRunStream(
           || toolCall.function_call?.name 
           || toolCall.tool_name;
         
-        let toolArgs: Record<string, any> = {};
-
-        try {
-          const argsStr = toolCall.function?.arguments 
-            || toolCall.arguments 
-            || toolCall.function_call?.arguments 
-            || toolCall.parameters 
-            || '{}';
-          toolArgs = typeof argsStr === 'string' ? JSON.parse(argsStr) : argsStr;
-        } catch {
-          toolArgs = {};
-        }
-
         if (!toolName) {
           console.warn('[Agent] 无法解析工具名称，原始工具调用:', JSON.stringify(toolCall).substring(0, 500));
           yield { type: 'tool_result', content: `工具调用格式错误，无法解析工具名称` };
           continue;
         }
 
+        const { args: toolArgs, error: argError } = parseCollectedToolCall(toolCall);
+        const missing = argError ? [] : missingRequiredArgs(toolArgs, requiredArgsOf(toolName));
+        const invalidReason = argError
+          || (missing.length ? `缺少必填参数：${missing.join('、')}` : null);
+
+        const standardToolCall: any = {
+          id: toolCall.id || `call_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          type: 'function',
+          function: {
+            name: toolName,
+            arguments: invalidReason ? '{}' : JSON.stringify(toolArgs),
+          },
+        };
+
+        // 参数不可用时绝不带着空对象去执行工具：那只会换来一句与真实原因无关的
+        // Node 内部错误（"The \"data\" argument must be..."），模型看不懂就只能反复
+        // 重试同一个调用 —— 这正是"工具一直失败 + 代码一直循环"的来源。
+        // 这里把真实原因明确回给模型，并保持 tool 消息配对，让下一轮能据此改正。
+        if (invalidReason) {
+          const message = `工具「${toolName}」本次未执行。原因：${invalidReason}。请重新发起调用，确保参数是合法 JSON 且包含全部必填字段。`;
+          console.warn(`[Agent] ${message}`);
+          yield { type: 'tool_call', content: `调用工具: ${toolName}`, toolCall: { name: toolName, arguments: {} } };
+          yield { type: 'tool_result', content: message };
+          messages.push(buildToolCallAIMessage(standardToolCall));
+          messages.push(new ToolMessage({ tool_call_id: standardToolCall.id, content: message }));
+          continue;
+        }
+
+        // 同一个「工具 + 完全相同的参数」反复出现，说明模型卡住了：
+        // 继续循环只会烧 token 并一路跑到轮次上限，这里主动收手
+        const signature = `${toolName}:${standardToolCall.function.arguments}`;
+        const attempts = (attemptCounts.get(signature) || 0) + 1;
+        attemptCounts.set(signature, attempts);
+        if (attempts >= MAX_IDENTICAL_TOOL_ATTEMPTS) {
+          console.warn(`[Agent] 检测到重复工具调用（第 ${attempts} 次），停止循环: ${signature.slice(0, 200)}`);
+          stuckSignature = signature;
+          break;
+        }
+
         yield { type: 'tool_call', content: `调用工具: ${toolName}`, toolCall: { name: toolName, arguments: toolArgs } };
 
+        const artifactCountBefore = artifacts.length;
         const toolResult = await executeTool(toolName, toolArgs, toolContext);
+        const producedArtifacts = artifacts.slice(artifactCountBefore);
 
-        yield { type: 'tool_result', content: truncateToolResult(toolName, toolResult) };
+        yield {
+          type: 'tool_result',
+          content: truncateToolResult(toolName, toolResult),
+          // 只带本次新产出的：前端据此把文件卡片挂到当前消息上
+          ...(producedArtifacts.length ? { artifacts: producedArtifacts } : {}),
+        };
 
         if (toolName === 'search_knowledge_base') {
           const sources = await hybridSearch(toolArgs.query, config.rag.topK, collectionIds);
@@ -1509,23 +1731,19 @@ export async function* agentRunStream(
         }
 
         // 构建标准格式的 tool_calls 用于后续消息
-        const standardToolCall: any = {
-          id: toolCall.id || `call_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          type: 'function',
-          function: {
-            name: toolName,
-            arguments: typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs)
-          }
-        };
-        messages.push(new AIMessage({ content: '', tool_calls: [standardToolCall] }));
+        messages.push(buildToolCallAIMessage(standardToolCall));
         messages.push(new ToolMessage({ tool_call_id: standardToolCall.id, content: toolResult }));
       }
+
+      // 命中卡死检测：跳出外层轮次循环，走下面的"未完成"收尾
+      if (stuckSignature) break;
     } else {
       // 没有 tool_calls，是最终回答（已经流式输出）
       yield {
         type: 'done',
         content: '',
         sources: allSources,
+        artifacts: collectOutputArtifacts(artifacts, runStartTime, outputRoot),
         tokenUsage: {
           promptTokens: totalPromptTokens,
           completionTokens: totalCompletionTokens,
@@ -1536,10 +1754,37 @@ export async function* agentRunStream(
     }
   }
 
+  // 卡死检测命中：与"轮次不够"是两回事，必须分开说明原因
+  if (stuckSignature) {
+    yield {
+      type: 'done',
+      content: buildStuckLoopNotice(stuckSignature),
+      incomplete: true,
+      toolRounds: iteration,
+      sources: allSources,
+      artifacts: collectOutputArtifacts(artifacts, runStartTime, outputRoot),
+      tokenUsage: {
+        promptTokens: totalPromptTokens,
+        completionTokens: totalCompletionTokens,
+        totalTokens: totalPromptTokens + totalCompletionTokens,
+      }
+    };
+    return;
+  }
+
+  // 轮次预算耗尽：这里必须显式说明"任务没做完"。
+  // 旧实现的问题是双重的：文案说"处理超时"（其实根本不是超时，是轮次用尽），
+  // 而且这句话在下游被两层丢掉 —— taskRunner 只取 done 的 tokenUsage、
+  // 前端只取 tokenUsage/sources/plan —— 结果用户看到对话毫无征兆地停下，
+  // 任务却被标成 completed，观感就是"没做完却结束了"。
   yield {
     type: 'done',
-    content: '抱歉，处理超时，请简化问题。',
+    content: buildIterationExhaustedNotice(iteration),
+    // 让下游能区分"模型正常收尾"与"被预算截断"，据此决定任务状态
+    incomplete: true,
+    toolRounds: iteration,
     sources: allSources,
+    artifacts: collectOutputArtifacts(artifacts, runStartTime, outputRoot),
     tokenUsage: {
       promptTokens: totalPromptTokens,
       completionTokens: totalCompletionTokens,

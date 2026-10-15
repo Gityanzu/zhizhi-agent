@@ -67,7 +67,19 @@ export const config = {
   },
   
   agent: {
-    maxIterations: 5,
+    // 单次 Agent 运行的「LLM 轮次」上限：模型每发一次 tool_calls 就消耗一轮，
+    // 所以它本质上是"最多允许调用工具多少轮"。
+    //
+    // 为什么从 5 放宽到 25：实测「生成开发工程师简历（Word + PDF 各一份）」这类
+    // 多步任务，光前面几步就把 5 轮用光了 ——
+    //   1) 探测 docx/reportlab 是否可用 → 缺失
+    //   2) 装依赖（还撞上 code_interpreter 自身超时）
+    //   3) 查找可用中文字体
+    //   4) 复核依赖（docx OK / reportlab OK / fpdf OK）
+    //   5) 写脚本并运行 —— 到这儿恰好用满，真正产出文件的那一步永远走不到。
+    // 真正的死循环保护由"轮次上限 + 轮次耗尽显式终止"共同承担，不需要靠一个
+    // 小到会误伤正常任务的值来兜底。需要更严格时用 AGENT_MAX_ITERATIONS 覆盖。
+    maxIterations: Number(process.env.AGENT_MAX_ITERATIONS) || 25,
     // Agent 文件工具的默认输出根目录。桌面端由 Electron 注入 ZHI_AGENT_OUTPUT_DIR（用户可在设置里改），
     // 未注入时回退到 ZHI_USER_DATA/outputs，再回退到仓库内 agent_output。
     outputDir: process.env.ZHI_AGENT_OUTPUT_DIR

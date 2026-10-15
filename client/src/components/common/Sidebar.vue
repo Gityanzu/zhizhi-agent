@@ -1,38 +1,72 @@
 <template>
   <aside class="sidebar">
-    <!-- 页面导航 -->
-    <div class="page-nav">
+    <!-- 品牌头 -->
+    <div class="brand-head">
+      <span class="brand-name">智知</span>
+      <span class="brand-ver">工作台</span>
+    </div>
+
+    <!-- 快捷功能入口（专家·技能·连接器 / 更多 可展开子项，便于扩展） -->
+    <div class="quick-nav">
+      <div class="quick-item" @click="handleNewTask">
+        <el-icon><Plus /></el-icon><span>新建任务</span>
+      </div>
       <div
-        v-for="nav in navItems"
-        :key="nav.path"
-        class="page-nav-item"
-        :class="{ active: currentPath === nav.path }"
-        @click="navigateTo(nav.path)"
+        class="quick-item"
+        :class="{ active: currentPath === '/chat' }"
+        @click="navigateTo('/chat')"
       >
-        <el-icon><component :is="nav.icon" /></el-icon>
-        <span>{{ nav.name }}</span>
+        <el-icon><Service /></el-icon><span>助理</span>
+        <span class="beta-tag">BETA</span>
+      </div>
+      <div class="quick-item" :class="{ expanded: hubExpanded }" @click="hubExpanded = !hubExpanded">
+        <el-icon><MagicStick /></el-icon><span>专家·技能·连接器</span>
+        <el-icon class="caret" :class="{ open: hubExpanded }"><ArrowDown /></el-icon>
+      </div>
+      <div v-if="hubExpanded" class="quick-sub">
+        <div class="quick-sub-item" :class="{ active: currentPath === '/agents' }" @click="navigateTo('/agents')">
+          <el-icon><UserFilled /></el-icon><span>专家管理</span>
+        </div>
+        <div class="quick-sub-item" :class="{ active: currentPath === '/skills' }" @click="navigateTo('/skills')">
+          <el-icon><MagicStick /></el-icon><span>技能商店</span>
+        </div>
+        <div class="quick-sub-item" :class="{ active: currentPath === '/mcp' }" @click="navigateTo('/mcp')">
+          <el-icon><Connection /></el-icon><span>连接器（MCP）</span>
+        </div>
+      </div>
+      <div class="quick-item" :class="{ active: currentPath === '/monitor' }" @click="navigateTo('/monitor')">
+        <el-icon><Timer /></el-icon><span>定时任务</span>
+      </div>
+      <div class="quick-item" :class="{ active: currentPath === '/knowledge' }" @click="navigateTo('/knowledge')">
+        <el-icon><Collection /></el-icon><span>资料库</span>
+      </div>
+      <div class="quick-item" :class="{ expanded: moreExpanded }" @click="moreExpanded = !moreExpanded">
+        <el-icon><More /></el-icon><span>更多</span>
+      </div>
+      <div v-if="moreExpanded" class="quick-sub">
+        <div class="quick-sub-item" :class="{ active: currentPath === '/workflow' }" @click="navigateTo('/workflow')">
+          <el-icon><Operation /></el-icon><span>工作流编排</span>
+        </div>
+        <div class="quick-sub-item" :class="{ active: currentPath === '/code-workbench' }" @click="navigateTo('/code-workbench')">
+          <el-icon><Monitor /></el-icon><span>代码工作台</span>
+        </div>
+        <div class="quick-sub-item" :class="{ active: currentPath === '/analytics' }" @click="navigateTo('/analytics')">
+          <el-icon><DataAnalysis /></el-icon><span>数据分析</span>
+        </div>
+        <div class="quick-sub-item" :class="{ active: currentPath === '/settings' }" @click="navigateTo('/settings')">
+          <el-icon><Setting /></el-icon><span>设置</span>
+        </div>
       </div>
     </div>
 
     <!-- 仅聊天页面显示会话管理 -->
     <template v-if="isChatPage">
-      <div class="sidebar-header">
-        <button class="new-chat-btn" @click="chatStore.newSession()">
-          <el-icon><Plus /></el-icon>
-          <span>新建对话</span>
-        </button>
-        <button class="new-folder-btn" @click="handleNewFolder">
-          <el-icon><FolderAdd /></el-icon>
-          <span>新建文件夹</span>
-        </button>
-        <button class="import-btn" @click="emit('import')">
-          <el-icon><Upload /></el-icon>
-          <span>导入对话</span>
-        </button>
-      </div>
-
       <div class="session-list">
-      <!-- 文件夹筛选 -->
+      <!-- 空间（文件夹筛选，支持拖拽归类） -->
+      <div class="section-row">
+        <span class="section-title">空间 ({{ chatStore.folders.length }})</span>
+        <el-icon class="section-act" title="导入对话" @click="emit('import')"><Upload /></el-icon>
+      </div>
       <div class="folder-nav">
         <div
           class="nav-item"
@@ -102,10 +136,13 @@
         </div>
       </template>
 
-      <!-- 普通会话 -->
-      <div class="section-title">{{ pinnedSessions.length > 0 ? '其他对话' : '历史对话' }}</div>
+      <!-- 任务（历史对话，按更新时间倒序 + 相对时间） -->
+      <div class="section-row">
+        <span class="section-title">任务 ({{ unpinnedSessions.length }})</span>
+        <el-icon class="section-act" title="新建文件夹" @click="handleNewFolder"><FolderAdd /></el-icon>
+      </div>
       <div
-        v-for="session in unpinnedSessions"
+        v-for="session in visibleSessions"
         :key="session.id"
         class="session-item"
         :class="{ active: session.id === chatStore.currentSessionId }"
@@ -125,6 +162,7 @@
             >{{ t }}</span>
           </div>
         </div>
+        <span class="session-time">{{ relativeTime(session.updatedAt) }}</span>
         <el-dropdown trigger="click" @command="(cmd: string) => handleSessionCommand(cmd, session)" @click.stop>
           <el-icon class="more-icon"><MoreFilled /></el-icon>
           <template #dropdown>
@@ -137,6 +175,14 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+      </div>
+
+      <div
+        v-if="unpinnedSessions.length > SESSION_PREVIEW"
+        class="show-more"
+        @click="showAllSessions = !showAllSessions"
+      >
+        {{ showAllSessions ? '收起' : `查看更多 (${unpinnedSessions.length - SESSION_PREVIEW})` }}
       </div>
 
       <div v-if="chatStore.filteredSessions.length === 0" class="empty-tip">
@@ -233,35 +279,24 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Plus, ChatDotRound, User, Folder, FolderAdd, Files, MoreFilled, Top, Upload, Collection, Service, Operation, Setting, DataAnalysis, ArrowUp, Lock, SwitchButton } from '@element-plus/icons-vue'
+import { Plus, ChatDotRound, User, UserFilled, Folder, FolderAdd, Files, MoreFilled, More, Top, Upload, Collection, Service, MagicStick, Connection, Timer, Operation, Monitor, Setting, DataAnalysis, ArrowDown, ArrowUp, Lock, SwitchButton } from '@element-plus/icons-vue'
 import { useChatStore } from '@/stores/chat'
 import { useUiStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios from 'axios'
+import { getUserSettings } from '@/api/userSettings'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
-// 页面导航
-const navItems = [
-  { path: '/chat', name: '聊天', icon: ChatDotRound },
-  { path: '/knowledge', name: '知识库', icon: Collection },
-  { path: '/agents', name: 'Agent', icon: Service },
-  { path: '/workflow', name: '工作流', icon: Operation },
-  { path: '/analytics', name: '分析', icon: DataAnalysis },
-  { path: '/settings', name: '设置', icon: Setting },
-]
-
+// 页面导航（快捷功能区在模板里直接列路由，此处保留当前路径做高亮）
 const currentPath = computed(() => route.path)
 const isChatPage = computed(() => route.path === '/chat' || route.path === '/')
 
 function navigateTo(path: string) {
   router.push(path)
 }
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 
 const userProfile = ref({ nickname: '用户', role: 'AI助手使用者', avatar: '' })
 
@@ -328,9 +363,9 @@ function handleLogout() {
 
 async function loadUserProfile() {
   try {
-    const res = await axios.get(`${API_BASE}/api/user/settings`)
-    if (res.data?.profile) {
-      userProfile.value = res.data.profile
+    const data = await getUserSettings()
+    if (data?.profile) {
+      userProfile.value = data.profile
     }
   } catch (e) {
     // 静默失败，使用默认值
@@ -362,7 +397,44 @@ const uiStore = useUiStore()
 const draggedSessionId = ref<string | null>(null)
 
 const pinnedSessions = computed(() => (chatStore.filteredSessions || []).filter(s => s.isPinned))
-const unpinnedSessions = computed(() => (chatStore.filteredSessions || []).filter(s => !s.isPinned))
+const unpinnedSessions = computed(() =>
+  (chatStore.filteredSessions || [])
+    .filter(s => !s.isPinned)
+    .slice()
+    .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
+)
+
+/* ---------------- 任务列表：预览 + 相对时间 ---------------- */
+const SESSION_PREVIEW = 6
+const showAllSessions = ref(false)
+const hubExpanded = ref(false)
+const moreExpanded = ref(false)
+
+const visibleSessions = computed(() =>
+  showAllSessions.value ? unpinnedSessions.value : unpinnedSessions.value.slice(0, SESSION_PREVIEW)
+)
+
+/** WorkBuddy 风格相对时间：22小时前 / 4天前 / 9月20日 */
+function relativeTime(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const diff = Date.now() - d.getTime()
+  const MIN = 60_000, HOUR = 3_600_000, DAY = 86_400_000
+  if (diff < HOUR) return `${Math.max(1, Math.floor(diff / MIN))}分钟前`
+  if (diff < DAY) return `${Math.floor(diff / HOUR)}小时前`
+  if (diff < 7 * DAY) return `${Math.floor(diff / DAY)}天前`
+  const now = new Date()
+  const sameYear = d.getFullYear() === now.getFullYear()
+  return sameYear
+    ? `${d.getMonth() + 1}月${d.getDate()}日`
+    : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+}
+
+function handleNewTask() {
+  chatStore.newSession()
+  if (!isChatPage.value) router.push('/chat')
+}
 
 function countOfFolder(folderId: string): number {
   return chatStore.sessions.filter(s => s.folderId === folderId).length
@@ -491,39 +563,132 @@ function handleSelectSession(id: string) {
   transition: background-color 0.3s, border-color 0.3s;
 }
 
-/* 页面导航 */
-.page-nav {
-  padding: 12px 8px 8px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.page-nav-item {
+/* 品牌头 + 快捷功能区 */
+.brand-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-secondary);
-  transition: all 0.2s;
-  flex: 1;
-  min-width: 70px;
-  justify-content: center;
+  justify-content: space-between;
+  padding: 16px 16px 10px;
 }
-
-.page-nav-item:hover {
+.brand-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.brand-ver {
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 2px 8px;
+}
+.quick-nav {
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-color);
+}
+.quick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s;
+  user-select: none;
+}
+.quick-item:hover {
+  background: var(--bg-hover);
+}
+.quick-item.active {
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 600;
+}
+.quick-item .caret {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: transform 0.15s;
+}
+.quick-item .caret.open {
+  transform: rotate(180deg);
+}
+.beta-tag {
+  font-size: 9px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0 4px;
+  line-height: 14px;
+}
+.quick-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 0 4px;
+}
+.quick-sub-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 34px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.quick-sub-item:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-
-.page-nav-item.active {
+.quick-sub-item.active {
+  color: var(--primary);
   background: var(--primary-light);
-  color: var(--primary-color);
-  font-weight: 500;
+  font-weight: 600;
+}
+.section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 4px;
+}
+.section-row .section-title {
+  margin: 12px 0 6px;
+}
+.section-act {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+.section-act:hover {
+  color: var(--primary);
+  background: var(--bg-hover);
+}
+.session-time {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--text-placeholder);
+  white-space: nowrap;
+}
+.show-more {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 8px;
+}
+.show-more:hover {
+  color: var(--primary);
+  background: var(--bg-hover);
 }
 
 .sidebar-header {

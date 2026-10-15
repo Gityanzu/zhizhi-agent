@@ -14,6 +14,8 @@ const path = require('path');
 const backend = require('./backend.cjs');
 const updater = require('./updater.cjs');
 const serverConfig = require('./serverConfig.cjs');
+const browserView = require('./browserView.cjs');
+const previewWindow = require('./previewWindow.cjs');
 const { USER_DIR, trayIconName } = require('./paths.cjs');
 
 function safeHandler(channel, fn) {
@@ -137,6 +139,26 @@ function registerAllIpc() {
     return { canceled: false, filePath: result.filePath };
   });
 
+  // 把已存在的本地文件另存到用户指定位置（消息里产物卡片的"另存为"）。
+  // 为什么不让渲染层读成 base64 再写回：产物可能是几十上百 MB 的二进制，
+  // 走 IPC 传两遍会让内存直接翻倍，主进程内 fs.copyFile 一步到位。
+  safeHandler('fs:copyTo', async (e, srcPath, defaultName) => {
+    const stat = await fs.promises.stat(srcPath);
+    if (!stat.isFile()) throw new Error('只能另存文件');
+    const win = windowFrom(e);
+    const result = await dialog.showSaveDialog(win, {
+      title: '另存为',
+      defaultPath: path.join(USER_DIR.exports, defaultName || path.basename(srcPath)),
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    // 目标是同一个文件时 copyFile 会报错，这种情况直接当成功（用户本意就是"它已经在那"）
+    if (path.resolve(result.filePath) === path.resolve(srcPath)) {
+      return { canceled: false, filePath: result.filePath };
+    }
+    await fs.promises.copyFile(srcPath, result.filePath);
+    return { canceled: false, filePath: result.filePath };
+  });
+
   safeHandler('shell:showItemInFolder', (_e, filePath) => {
     shell.showItemInFolder(filePath);
     return true;
@@ -198,6 +220,33 @@ function registerAllIpc() {
   });
 
   safeHandler('serverConfig:test', (_e, url) => serverConfig.testConnection(url));
+
+  /* ---------------- 工作台内置浏览器（WebContentsView） ----------------
+   * 原生视图由主进程持有，渲染层只负责「下发指令 + 上报矩形」。
+   * WebContentsView 始终浮在 HTML 之上，可见性必须显式开关，否则会盖住界面，
+   * 因此 setBounds / setVisible 是两条独立且必须被调用的通道。
+   *
+   * 每个 handler 都把 windowFrom(event) 传下去：内置浏览器现在是"挂在某个窗口上"的视图，
+   * 主窗口和独立预览窗口可以各有一份，状态也各推各的（渲染层无需感知窗口概念）。
+   */
+  safeHandler('browser:create', (e, payload) => browserView.create(windowFrom(e), payload || {}));
+  safeHandler('browser:setBounds', (e, bounds) => {
+    browserView.setBounds(windowFrom(e), bounds);
+    return true;
+  });
+  safeHandler('browser:setVisible', (e, visible) => {
+    browserView.setVisible(windowFrom(e), visible);
+    return true;
+  });
+  safeHandler('browser:navigate', (e, url) => browserView.navigate(windowFrom(e), url));
+  safeHandler('browser:action', (e, kind) => browserView.action(windowFrom(e), kind));
+  safeHandler('browser:destroy', (e) => browserView.destroy(windowFrom(e)));
+  safeHandler('browser:getState', (e) => browserView.getState(windowFrom(e)));
+
+  /* ---------------- 独立预览窗口 ----------------
+   * 渲染层只说"要看哪个文件/哪个网址"，地址由主进程拼（见 previewWindow.cjs 的注解）。
+   */
+  safeHandler('window:openPreview', (_e, payload) => previewWindow.open(payload || {}));
 }
 
 module.exports = { registerAllIpc, sendToAll };

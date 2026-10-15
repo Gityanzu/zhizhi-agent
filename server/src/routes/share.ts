@@ -8,7 +8,7 @@ import {
   revokeShare,
   isExpired,
 } from '../services/share';
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 import { assertSessionOwner } from '../services/session';
 
 const router = Router();

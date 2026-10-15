@@ -1,6 +1,12 @@
 import { Router, Response, NextFunction } from 'express';
 import { taskManager } from '../services/taskManager';
 import { runTaskInBackground } from '../services/taskRunner';
+import { runWithUserCredential } from '../services/llm';
+import { resolveUserCredential } from '../services/userApiKey';
+import { runWithAgentOutputDir } from '../services/agentOutput';
+import { resolveUserOutputDir } from '../services/userOutputPreference';
+import { runWithPermissionMode } from '../services/permissionMode';
+import { resolveUserPermissionMode } from '../services/userPermissionPreference';
 import { createSession, assertSessionOwner, addMessage } from '../services/session';
 import { optionalAuth, AuthRequest } from '../middleware/auth';
 
@@ -73,25 +79,39 @@ export async function handleCreateTask(
     prompt: message,
   });
 
-  // 后台执行（fire-and-forget）
-  runTaskInBackground({
-    taskId: task.id,
-    sessionId: sid,
-    userId: userId ?? null,
-    message,
-    mode,
-    agentId,
-    collectionIds,
-    enableThinking,
-    parentId: typeof parentId === 'string' ? parentId : undefined,
-    branchId: typeof branchId === 'string' ? branchId : undefined,
-    isEdit: isEdit === true,
-    editMessageId: typeof editMessageId === 'string' ? editMessageId : undefined,
-    modelParams: modelParams && typeof modelParams === 'object' ? modelParams : undefined,
-    userMessageId,
-  }).catch((e) => {
-    console.error('[Task] 后台执行失败:', e);
-    taskManager.setError(task.id, e instanceof Error ? e.message : String(e));
+  // 后台执行（fire-and-forget）：必须在「用户凭据上下文」里启动。
+  // 凭据、输出目录与权限模式都是 AsyncLocalStorage 存的，随异步调用链传递，因此并发任务各用各的；
+  // 若放进任务内部用模块级变量设置，就成了进程级单例，会被其他用户覆盖
+  // （A 开了完全访问，B 的后台任务就跟着免确认，这是必须避免的越权）。
+  const [credential, outputDir, permMode] = await Promise.all([
+    resolveUserCredential(userId ?? null).catch(() => null),
+    resolveUserOutputDir(userId),
+    resolveUserPermissionMode(userId),
+  ]);
+  runWithAgentOutputDir(outputDir, () => {
+    runWithPermissionMode(permMode, () =>
+      runWithUserCredential(credential, () => {
+        runTaskInBackground({
+          taskId: task.id,
+          sessionId: sid,
+          userId: userId ?? null,
+          message,
+          mode,
+          agentId,
+          collectionIds,
+          enableThinking,
+          parentId: typeof parentId === 'string' ? parentId : undefined,
+          branchId: typeof branchId === 'string' ? branchId : undefined,
+          isEdit: isEdit === true,
+          editMessageId: typeof editMessageId === 'string' ? editMessageId : undefined,
+          modelParams: modelParams && typeof modelParams === 'object' ? modelParams : undefined,
+          userMessageId,
+        }).catch((e) => {
+          console.error('[Task] 后台执行失败:', e);
+          taskManager.setError(task.id, e instanceof Error ? e.message : String(e));
+        });
+      })
+    );
   });
 
   return { status: 200, body: { taskId: task.id, sessionId: sid } };

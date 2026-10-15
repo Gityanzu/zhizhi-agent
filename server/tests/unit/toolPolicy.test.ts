@@ -66,10 +66,14 @@ describe('gateToolExecution 网关判定', () => {
     expect(arg.path).toBe('tool:code_interpreter');
   });
 
-  it('危险工具 + 用户拒绝 → 返回拒绝原因', async () => {
+  it('危险工具 + 未获批准 → 返回原因，且不能武断归因为"用户拒绝"', async () => {
+    // 审批返回 false 有两种可能：用户点了拒绝，或等待超时被自动拒绝。
+    // 二者无法从布尔值区分，所以文案不能写成"用户已拒绝" ——
+    // 否则模型会误判用户意图，直接放弃本可重试的路径。
     const requestApproval = vi.fn().mockResolvedValue(false);
     const msg = await gateToolExecution('text_to_sql', { requestApproval });
-    expect(msg).toContain('用户已拒绝');
+    expect(msg).toContain('未获批准');
     expect(msg).toContain('text_to_sql');
+    expect(msg).not.toContain('用户已拒绝');
   });
 });

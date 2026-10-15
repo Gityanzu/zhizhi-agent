@@ -16,9 +16,12 @@ const path = require('path');
 const { IS_DEV, DEV_SERVER_URL, ensureUserDirs, USER_DIR } = require('./paths.cjs');
 const { startHostServer, stopHostServer } = require('./hostServer.cjs');
 const { registerAllIpc, sendToAll } = require('./ipc.cjs');
+const previewWindow = require('./previewWindow.cjs');
+const { installAppMenu } = require('./menu.cjs');
 const { createTray, destroyTray } = require('./tray.cjs');
 const backend = require('./backend.cjs');
 const updater = require('./updater.cjs');
+const browserView = require('./browserView.cjs');
 
 const QUICK_ASK_SHORTCUT = 'CommandOrControl+Shift+Space';
 
@@ -62,6 +65,8 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false,
       spellcheck: false,
+      // 这里刻意不开 webviewTag：内置浏览器走主进程的 WebContentsView
+      // （见 browserView.cjs），渲染层没有加载任意网页的能力，攻击面更小。
     },
   });
 
@@ -88,12 +93,9 @@ function createWindow() {
     callback(['notifications', 'clipboard-read', 'clipboard-sanitized-write'].includes(permission));
   });
 
-  // 常用的调试快捷键：Ctrl/Cmd+Shift+I 打开 DevTools
-  win.webContents.on('before-input-event', (_e, input) => {
-    if (input.type === 'keyDown' && input.key.toLowerCase() === 'i' && input.shift && (input.control || input.meta)) {
-      win.webContents.toggleDevTools();
-    }
-  });
+  // 注：Ctrl/Cmd+Shift+I 打开 DevTools 已统一由应用菜单（视图 → 开发者工具）
+  // 的 role: toggleDevTools 提供。这里不能再挂一份 before-input-event 监听，
+  // 否则同一次按键会被处理两次，出现"开了又立刻关掉"的抖动。
 
   const target = LOAD_FROM_HOST ? hostOrigin : DEV_SERVER_URL;
   win.loadURL(target);
@@ -114,6 +116,14 @@ function createWindow() {
     );
   });
 
+  // 内置浏览器是原生视图，永远浮在页面之上：窗口一藏/一最小化就必须收起它，
+  // 否则从托盘恢复时会看到网页浮在界面最上层。
+  // 传入 win：视图挂在具体窗口上，多窗口时不能靠"当前窗口"这种隐含状态。
+  win.on('hide', () => browserView.onWindowVisibility(win, true));
+  win.on('minimize', () => browserView.onWindowVisibility(win, true));
+  win.on('show', () => browserView.onWindowVisibility(win, false));
+  win.on('restore', () => browserView.onWindowVisibility(win, false));
+
   // 关闭窗口不退出：桌面端定位是常驻工具，交给托盘
   win.on('close', (e) => {
     if (!isQuitting) {
@@ -124,6 +134,8 @@ function createWindow() {
   });
 
   win.on('closed', () => {
+    // 窗口没了，它名下的原生视图必须显式释放，否则残留一个不可见的 WebContents
+    browserView.destroy(win);
     mainWindow = null;
   });
 
@@ -146,6 +158,12 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    // 独立预览窗口要知道从哪个地址加载页面：生产态是本地托管服务，开发态是 Vite。
+    // 用 getter 而不是快照 —— hostOrigin 要等 startHostServer() 之后才有值。
+    previewWindow.init({
+      getBaseUrl: () => (LOAD_FROM_HOST ? hostOrigin : DEV_SERVER_URL),
+    });
+
     // Windows 上要显式设置 AppUserModelID，否则原生通知显示的是 electron.app.*
     if (process.platform === 'win32') app.setAppUserModelId('com.huxin.zhizhiagent');
 
@@ -167,6 +185,16 @@ if (!gotLock) {
     }
 
     mainWindow = createWindow();
+
+    // 应用菜单要在窗口之后安装：「窗口置顶」的初始勾选状态需要读当前窗口
+    installAppMenu({
+      getWindow: getMainWindow,
+      onCheckUpdate: () => updater.checkForUpdates(),
+      onQuit: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    });
 
     // 后端不阻塞窗口显示：先把界面给用户，起来了再通知
     backend.ensureBackend().then((state) => {
@@ -218,10 +246,12 @@ if (!gotLock) {
     isQuitting = true;
   });
 
-  // 退出前一定要回收资源：后端子进程、本地服务、全局快捷键
+  // 退出前一定要回收资源：后端子进程、本地服务、全局快捷键、各窗口的内置浏览器
   app.on('will-quit', async (e) => {
     e.preventDefault();
     globalShortcut.unregisterAll();
+    browserView.destroyAll();
+    previewWindow.closeAll();
     destroyTray();
     try {
       await backend.stopBackend();

@@ -27,6 +27,12 @@ export interface TaskApproval {
   inRoot?: boolean;
   oldContent?: string;
   newContent?: string;
+  /**
+   * 非文件类审批（exec/network/db）的人类可读说明。必须一起持久化：
+   * 前端刷新后要靠它重建审批卡，否则只剩一个 tool:xxx 的内部标识，
+   * 用户根本看不出自己在授权什么。
+   */
+  description?: string;
 }
 
 export interface Task {

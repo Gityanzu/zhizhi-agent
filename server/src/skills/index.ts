@@ -10,13 +10,14 @@
  */
 
 import { getLLM } from '../services/llm';
-import { tools, executeTool } from '../services/agent';
+import { tools, executeTool, buildToolCallAIMessage } from '../services/agent';
+import { buildHistoryMessages } from '../services/history';
 import { usePostgres, query } from '../db';
+import * as fs from 'fs';
 import * as path from 'path';
 import {
   SystemMessage,
   HumanMessage,
-  AIMessage,
   ToolMessage,
 } from '@langchain/core/messages';
 import { loadSkillsFromLibrary, readSkillReferences, LoadedFileSkill } from './loader';
@@ -459,22 +460,81 @@ export class SkillManager {
   // 删除自定义 Skill
   async deleteCustomSkill(userId: string, skillId: string): Promise<boolean> {
     if (!usePostgres) return false;
-    
+
     try {
       const result = await query(
         'DELETE FROM skills WHERE id = $1 AND user_id = $2',
         [skillId, userId]
       );
-      
+
       if (result.rowCount !== null && result.rowCount > 0) {
         this.skills.delete(skillId);
       }
-      
+
       return result.rowCount !== null && result.rowCount > 0;
     } catch (error) {
       console.error('删除自定义 Skill 失败:', error);
       return false;
     }
+  }
+
+  // ==================== 文件技能安装/卸载（技能市场 & 本地导入） ====================
+
+  /**
+   * 安装一个 SKILL.md 文件技能（联网市场一键安装 / 本地导入共用）。
+   * 写入用户技能目录（桌面端 userData/skills），Web 端写入仓库 skills-library，随后热加载。
+   */
+  async installFileSkill(data: {
+    id: string;
+    name: string;
+    description?: string;
+    icon?: string;
+    version?: string;
+    triggerKeywords?: string[];
+    systemPrompt: string;
+    allowedTools?: string[];
+  }): Promise<SkillDefinition> {
+    const id = String(data.id || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-');
+    if (!id) throw new Error('技能 id 非法');
+    if (!data.systemPrompt || !data.systemPrompt.trim()) throw new Error('技能提示词（正文）不能为空');
+
+    // 安装目标：桌面端优先 userData/skills（随应用数据走），Web 端写入内置技能库
+    const targetRoot = process.env.ZHI_USER_DATA
+      ? path.join(process.env.ZHI_USER_DATA, 'skills')
+      : this.skillLibraryDirs()[0];
+    const dir = path.join(targetRoot, id);
+
+    // 已存在则覆盖安装（升级）
+    fs.mkdirSync(dir, { recursive: true });
+
+    const fm: string[] = ['---', `id: ${id}`, `name: ${data.name || id}`];
+    if (data.description) fm.push(`description: ${data.description}`);
+    if (data.icon) fm.push(`icon: ${data.icon}`);
+    fm.push(`version: ${data.version || '1.0.0'}`);
+    if (data.allowedTools?.length) fm.push(`allowedTools: [${data.allowedTools.join(', ')}]`);
+    if (data.triggerKeywords?.length) fm.push(`triggerKeywords: [${data.triggerKeywords.join(', ')}]`);
+    fm.push('---', '', data.systemPrompt.trim(), '');
+
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), fm.join('\n'), 'utf-8');
+
+    await this.reloadSkills();
+    const skill = this.skills.get(id);
+    if (!skill) throw new Error('安装后加载失败，请检查 SKILL.md 格式');
+    return skill;
+  }
+
+  /** 卸载文件技能：删除技能目录并热加载；仅文件库技能可卸载（内置技能不可删） */
+  async removeFileSkill(skillId: string): Promise<boolean> {
+    const loaded = this.fileSkills.get(skillId);
+    if (!loaded) return false;
+    try {
+      fs.rmSync(loaded.dir, { recursive: true, force: true });
+    } catch (e) {
+      console.error('[skills] 删除技能目录失败:', e);
+      return false;
+    }
+    await this.reloadSkills();
+    return true;
   }
 
   // 获取 Skill 可用的工具
@@ -501,9 +561,7 @@ export class SkillManager {
 
     const messages: any[] = [
       new SystemMessage(skill.systemPrompt + `\n\n当前可用工具：\n${toolsDesc}\n\n需要时请调用工具。`),
-      ...chatHistory.slice(-6).map(m =>
-        m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
-      ),
+      ...buildHistoryMessages(chatHistory, 6),
       new HumanMessage(userMessage),
     ];
 
@@ -555,7 +613,7 @@ export class SkillManager {
               arguments: typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs)
             }
           };
-          messages.push(new AIMessage({ content: '', tool_calls: [standardToolCall] }));
+          messages.push(buildToolCallAIMessage(standardToolCall));
           messages.push(new ToolMessage({
             tool_call_id: standardToolCall.id,
             content: toolResult,

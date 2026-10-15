@@ -135,7 +135,17 @@
         @plan-confirm="handlePlanConfirm"
       />
     </div>
-    
+
+    <!-- 会话所有产物入口：点击在右侧抽屉汇总展示整个会话生成的文件 -->
+    <button
+      v-if="sessionArtifacts.length"
+      class="all-artifacts-entry"
+      @click="showArtifactsDrawer = true"
+    >
+      查看所有产物 ({{ sessionArtifacts.length }})
+      <el-icon><ArrowRight /></el-icon>
+    </button>
+
     <!-- 输入区域 -->
     <div class="input-area">
       <!-- 图片预览 -->
@@ -167,30 +177,134 @@
           />
           <div class="input-bottom-bar">
             <div class="input-left-actions">
-              <!-- 模式选择下拉 -->
-              <el-dropdown trigger="click" class="mode-dropdown">
-                <button class="mode-select-btn">
-                  <el-icon><component :is="currentModeIcon" /></el-icon>
-                  <span>{{ currentModeLabel }}</span>
-                  <el-icon class="arrow-icon"><ArrowDown /></el-icon>
+              <!-- "+" 多级功能菜单（添加文件/引用文件/模式/专家/技能/连接器） -->
+              <div class="plus-wrap">
+                <button
+                  class="plus-btn"
+                  :class="{ active: showPlusMenu }"
+                  title="添加文件、切换模式/技能/连接器"
+                  @click.stop="togglePlusMenu"
+                >
+                  <el-icon :size="18"><Plus /></el-icon>
                 </button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item
-                      v-for="m in modes"
-                      :key="m.value"
-                      :class="{ active: chatStore.mode === m.value }"
-                      @click="chatStore.mode = m.value"
-                    >
-                      <el-icon><component :is="m.icon" /></el-icon>
-                      <span>{{ m.label }}</span>
-                      <el-icon v-if="chatStore.mode === m.value" class="check-icon"><Check /></el-icon>
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
 
-              <!-- 图片上传按钮 -->
+                <div v-if="showPlusMenu" class="plus-menu" @click.stop>
+                  <!-- 1. 添加文件 -->
+                  <div class="plus-item has-sub">
+                    <el-icon><Paperclip /></el-icon><span>添加文件</span>
+                    <el-icon class="sub-arrow"><ArrowRight /></el-icon>
+                    <div class="sub-menu">
+                      <div class="sub-item" @click="onPickLocalFile">
+                        <el-icon><UploadFilled /></el-icon><span>本地文件（图片）</span>
+                      </div>
+                      <div class="sub-item" @click="onOpenDocumentPanel">
+                        <el-icon><Folder /></el-icon><span>资料库</span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 2. 引用对话中的文件 -->
+                  <div class="plus-item has-sub" :class="{ disabled: !sessionArtifacts.length }">
+                    <el-icon><CollectionTag /></el-icon><span>引用对话中的文件</span>
+                    <el-icon class="sub-arrow"><ArrowRight /></el-icon>
+                    <div v-if="sessionArtifacts.length" class="sub-menu">
+                      <div
+                        v-for="a in sessionArtifacts" :key="a.path"
+                        class="sub-item" :title="a.path"
+                        @click="onAttachArtifact(a)"
+                      >
+                        <el-icon><Document /></el-icon><span>{{ a.name }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 3. 模式 -->
+                  <div class="plus-item has-sub">
+                    <el-icon><MagicStick /></el-icon><span>模式</span>
+                    <el-icon class="sub-arrow"><ArrowRight /></el-icon>
+                    <div class="sub-menu">
+                      <div
+                        v-for="m in modes" :key="m.value"
+                        class="sub-item" :class="{ active: chatStore.mode === m.value }"
+                        @click="chatStore.mode = m.value; closePlusMenu()"
+                      >
+                        <el-icon><component :is="m.icon" /></el-icon><span>{{ m.label }}</span>
+                        <el-icon v-if="chatStore.mode === m.value" class="check-icon"><Check /></el-icon>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 4. 专家 -->
+                  <div class="plus-item has-sub">
+                    <el-icon><UserFilled /></el-icon><span>专家</span>
+                    <el-icon class="sub-arrow"><ArrowRight /></el-icon>
+                    <div class="sub-menu">
+                      <div
+                        class="sub-item" :class="{ active: !chatStore.currentAgentId }"
+                        @click="chatStore.currentAgentId = null; closePlusMenu()"
+                      >
+                        <el-icon><Service /></el-icon><span>默认助手</span>
+                      </div>
+                      <div
+                        v-for="a in chatStore.customAgents" :key="a.id"
+                        class="sub-item" :class="{ active: chatStore.currentAgentId === a.id }"
+                        @click="chatStore.currentAgentId = a.id; closePlusMenu()"
+                      >
+                        <el-icon><UserFilled /></el-icon><span>{{ a.name }}</span>
+                      </div>
+                      <div class="sub-item manage" @click="router.push('/agents')">
+                        <el-icon><Setting /></el-icon><span>管理专家…</span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 5. 技能 -->
+                  <div class="plus-item has-sub">
+                    <el-icon><MagicStick /></el-icon><span>技能</span>
+                    <el-icon class="sub-arrow"><ArrowRight /></el-icon>
+                    <div class="sub-menu">
+                      <div
+                        v-for="s in chatStore.skills" :key="s.id"
+                        class="sub-item" :class="{ active: selectedSkill === s.id }"
+                        @click="selectedSkill = s.id; handleSkillChange(s.id); closePlusMenu()"
+                      >
+                        <span class="item-emoji">{{ s.icon }}</span><span>{{ s.name }}</span>
+                      </div>
+                      <div class="sub-item manage" @click="router.push('/skills')">
+                        <el-icon><Setting /></el-icon><span>管理技能…</span>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 6. 连接器（MCP） -->
+                  <div class="plus-item has-sub">
+                    <el-icon><Connection /></el-icon><span>连接器</span>
+                    <el-icon class="sub-arrow"><ArrowRight /></el-icon>
+                    <div class="sub-menu">
+                      <div v-if="!mcpServers.length" class="sub-item disabled">
+                        <span>暂无连接器</span>
+                      </div>
+                      <div
+                        v-for="s in mcpServers" :key="s.id"
+                        class="sub-item" :class="{ active: s.enabled }"
+                        :title="s.transport === 'http' ? s.url : s.command"
+                        @click="onToggleMcp(s)"
+                      >
+                        <el-icon><Connection /></el-icon>
+                        <span>{{ s.name }}</span>
+                        <el-tag size="small" :type="s.transport === 'http' ? 'primary' : 'warning'" effect="plain">
+                          {{ s.transport === 'http' ? 'HTTP' : 'stdio' }}
+                        </el-tag>
+                        <el-icon v-if="s.enabled" class="check-icon"><Check /></el-icon>
+                      </div>
+                      <div class="sub-item manage" @click="router.push('/mcp')">
+                        <el-icon><Setting /></el-icon><span>管理连接器…</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 权限模式下拉：本机默认权限 / 允许全部权限（按用户存，切换即时生效） -->
+              <PermissionModeSelect />
+            </div>
+            <div class="input-right-actions">
+              <!-- 隐藏的图片选择（"+" → 添加文件 → 本地文件） -->
               <input
                 ref="fileInputRef"
                 type="file"
@@ -198,9 +312,6 @@
                 style="display: none"
                 @change="handleImageChange"
               />
-              <button class="action-btn" :disabled="chatStore.isLoading" @click="triggerFileInput">
-                <el-icon><Picture /></el-icon>
-              </button>
               <!-- 语音输入按钮（功能13） -->
               <button
                 class="action-btn mic-btn"
@@ -216,8 +327,6 @@
                   <el-icon><MagicStick /></el-icon>
                 </button>
               </el-tooltip>
-            </div>
-            <div class="input-right-actions">
               <!-- 模型选择器 -->
               <el-dropdown trigger="click" class="model-dropdown">
                 <button class="model-select-btn">
@@ -320,25 +429,94 @@
     </div>
     <!-- 技能详情弹层（SKILL.md 正文 + references） -->
     <SkillDetailDialog v-model="showSkillDetail" :skill-id="detailSkillId" />
+    <!-- 会话所有产物抽屉 -->
+    <AllArtifactsDrawer v-model="showArtifactsDrawer" :artifacts="sessionArtifacts" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue'
-import { Service, Promotion, Picture, Close, Search, ArrowUp, ArrowDown, Share, Collection, Microphone, Document, Monitor, List, Cpu, Check, MagicStick, ChatDotRound, UserFilled, InfoFilled } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
+import { Service, Promotion, Picture, Close, Search, ArrowUp, ArrowDown, ArrowRight, Share, Collection, CollectionTag, Microphone, Document, Monitor, List, Cpu, Check, MagicStick, ChatDotRound, UserFilled, InfoFilled, Plus, Paperclip, UploadFilled, Folder, Connection, Setting } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
 import { reloadSkills } from '@/api/agent'
+import { getMcpServers, updateMcpServer, type McpServer } from '@/api/mcp'
 import { useSpeech } from '@/composables/useSpeech'
 import MessageItem from './MessageItem.vue'
+import PermissionModeSelect from './PermissionModeSelect.vue'
 import SkillDetailDialog from '@/components/common/SkillDetailDialog.vue'
+import AllArtifactsDrawer from './AllArtifactsDrawer.vue'
+import type { MessageArtifact } from '@/types'
 
 const chatStore = useChatStore()
+const router = useRouter()
 const inputText = ref('')
 const chatInputRef = ref()
 const messagesContainer = ref<HTMLElement | null>(null)
 const selectedImage = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+
+/* ---------------- "+" 多级功能菜单 ---------------- */
+const showPlusMenu = ref(false)
+const mcpServers = ref<McpServer[]>([])
+
+function togglePlusMenu() {
+  showPlusMenu.value = !showPlusMenu.value
+  if (showPlusMenu.value) {
+    // 打开时顺手刷新：专家、连接器列表可能是刚在管理页改过的
+    chatStore.loadCustomAgents().catch(() => {})
+    getMcpServers().then((list) => { mcpServers.value = list }).catch(() => {})
+  }
+}
+
+function closePlusMenu() {
+  showPlusMenu.value = false
+}
+
+function onPickLocalFile() {
+  closePlusMenu()
+  fileInputRef.value?.click()
+}
+
+function onOpenDocumentPanel() {
+  closePlusMenu()
+  window.dispatchEvent(new CustomEvent('open-document-panel'))
+}
+
+function onAttachArtifact(a: MessageArtifact) {
+  closePlusMenu()
+  window.dispatchEvent(new CustomEvent('attach-file-to-input', { detail: a.path }))
+  ElMessage.success(`已引用 ${a.name}`)
+}
+
+async function onToggleMcp(s: McpServer) {
+  try {
+    await updateMcpServer(s.id, { enabled: !s.enabled })
+    mcpServers.value = await getMcpServers()
+    ElMessage.success(`${s.name} 已${s.enabled ? '停用' : '启用'}`)
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || '操作失败')
+  }
+}
+
+function onDocClickOutside(e: MouseEvent) {
+  const menu = (e.target as HTMLElement)?.closest?.('.plus-wrap')
+  if (!menu) closePlusMenu()
+}
+
+/* ---------------- 会话所有产物 ---------------- */
+const showArtifactsDrawer = ref(false)
+// 汇总所有消息登记的产物，按 path 去重（后写覆盖先写，保留最新一次登记的大小）
+const sessionArtifacts = computed<MessageArtifact[]>(() => {
+  const byPath = new Map<string, MessageArtifact>()
+  for (const msg of chatStore.messages) {
+    for (const a of msg.artifacts || []) {
+      byPath.set(a.path, a)
+    }
+  }
+  return Array.from(byPath.values())
+})
 
 // 模型选择相关状态
 const selectedModel = ref('')
@@ -584,6 +762,19 @@ function handleClearInput() {
   clearInput()
 }
 
+/**
+ * 会话末尾文件卡片的「添加到对话」：把文件路径补进输入框。
+ * 追加而不是覆盖 —— 用户很可能已经写了一半要求（"把这个文件改成…"），
+ * 直接覆盖是最容易让人骂人的交互。插入后聚焦，方便继续补话。
+ */
+function handleAttachFile(e: Event) {
+  const p = (e as CustomEvent<{ path?: string }>).detail?.path
+  if (!p) return
+  const cur = inputText.value.trimEnd()
+  inputText.value = cur ? `${cur} ${p}` : p
+  nextTick(() => chatInputRef.value?.textarea?.focus?.())
+}
+
 // 消息搜索功能
 function doSearch() {
   if (!searchQuery.value.trim()) {
@@ -634,11 +825,15 @@ function closeSearch() {
 
 onMounted(() => {
   window.addEventListener('clear-input', handleClearInput)
+  window.addEventListener('attach-file-to-input', handleAttachFile)
+  document.addEventListener('click', onDocClickOutside)
   chatStore.loadCollections()
 })
 
 onUnmounted(() => {
   window.removeEventListener('clear-input', handleClearInput)
+  window.removeEventListener('attach-file-to-input', handleAttachFile)
+  document.removeEventListener('click', onDocClickOutside)
 })
 
 // 自动滚动到底部
@@ -867,6 +1062,27 @@ watch(
   box-shadow: var(--shadow);
 }
 
+/* 会话所有产物入口：贴在输入区上方 */
+.all-artifacts-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 24px 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.all-artifacts-entry:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+
 .input-area {
   padding: 16px 24px 20px;
   background: var(--bg-secondary);
@@ -944,6 +1160,132 @@ watch(
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* ========== "+" 多级功能菜单 ========== */
+.plus-wrap {
+  position: relative;
+}
+.plus-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.plus-btn:hover,
+.plus-btn.active {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-light);
+}
+.plus-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 190px;
+  padding: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  z-index: 60;
+}
+.plus-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.plus-item:hover {
+  background: var(--bg-tertiary);
+}
+.plus-item.disabled {
+  color: var(--text-placeholder);
+  cursor: not-allowed;
+}
+.plus-item .sub-arrow {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-placeholder);
+}
+/* 悬停桥接：父项右侧延伸一段透明热区，鼠标穿过与子菜单之间的空隙时
+   仍算在父项内，:hover 不会中断 → 三级框不再闪没 */
+.plus-item.has-sub::after {
+  content: '';
+  position: absolute;
+  right: -12px;
+  top: -4px;
+  bottom: -4px;
+  width: 12px;
+}
+.sub-menu {
+  display: none;
+  position: absolute;
+  left: calc(100% + 6px);
+  top: -6px;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  z-index: 61;
+}
+.plus-item.has-sub:hover .sub-menu {
+  display: block;
+}
+.sub-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sub-item:hover {
+  background: var(--bg-tertiary);
+}
+.sub-item.active {
+  color: var(--primary);
+  background: var(--primary-light);
+}
+.sub-item.disabled {
+  color: var(--text-placeholder);
+  cursor: default;
+}
+.sub-item.manage {
+  border-top: 1px solid var(--border-light);
+  margin-top: 4px;
+  padding-top: 9px;
+  color: var(--text-secondary);
+}
+.sub-item.manage:hover {
+  color: var(--primary);
+}
+.item-emoji {
+  font-size: 14px;
+}
+.sub-item .check-icon {
+  margin-left: auto;
+  color: var(--primary);
 }
 
 /* 模式选择按钮 */

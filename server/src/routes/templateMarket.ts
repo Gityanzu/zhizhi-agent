@@ -124,7 +124,7 @@ router.post('/', async (req: Request, res: Response) => {
     const template = await createTemplate(
       data,
       req.userId,
-      req.user?.name || '匿名用户'
+      req.user?.username || '匿名用户'
     );
 
     res.status(201).json({
@@ -680,7 +680,7 @@ router.post('/import', async (req: Request, res: Response) => {
         license: importData.license || 'MIT',
       },
       req.userId,
-      req.user?.name || '匿名用户'
+      req.user?.username || '匿名用户'
     );
 
     res.status(201).json({

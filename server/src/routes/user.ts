@@ -1,14 +1,14 @@
 import { Router } from 'express';
-import { getSettings, updateProfile, updatePreferences, addLLMKey, deleteLLMKey, exportAllData, importAllData } from '../services/userSettings';
+import { getSettings, updateProfile, updatePreferences, updatePermissionMode, addLLMKey, deleteLLMKey, exportAllData, importAllData } from '../services/userSettings';
 
 const router = Router();
-import { requireAuth } from '../middleware/auth';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 router.use(requireAuth);
 
 // 获取用户设置
-router.get('/settings', async (req, res) => {
+router.get('/settings', async (req: AuthRequest, res) => {
   try {
-    const settings = await getSettings();
+    const settings = await getSettings(req.userId);
     res.json(settings);
   } catch (error) {
     res.status(500).json({ error: '获取设置失败' });
@@ -27,12 +27,24 @@ router.put('/settings/profile', async (req, res) => {
 });
 
 // 更新偏好设置
-router.put('/settings/preferences', async (req, res) => {
+router.put('/settings/preferences', async (req: AuthRequest, res) => {
   try {
-    const preferences = await updatePreferences(req.body);
+    const preferences = await updatePreferences(req.body, req.userId);
     res.json(preferences);
   } catch (error) {
     res.status(500).json({ error: '更新偏好失败' });
+  }
+});
+
+// 更新 Agent 权限模式（本机默认 / 允许全部）
+// 独立端点而不是塞进 /settings/preferences：后者是整包覆盖，只带一个字段会把其它偏好清空
+router.put('/settings/permission-mode', async (req: AuthRequest, res) => {
+  try {
+    const result = await updatePermissionMode(req.userId, req.body?.mode);
+    res.json(result);
+  } catch (error) {
+    // 校验失败（非法值 / 环境不支持完全访问）是可预期的用户错误，按 400 回，让界面能直接展示原因
+    res.status(400).json({ error: error instanceof Error ? error.message : '更新权限模式失败' });
   }
 });
 

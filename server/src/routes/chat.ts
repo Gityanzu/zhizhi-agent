@@ -1,29 +1,59 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { agentRun } from '../services/agent';
+import { buildHistoryMessages } from '../services/history';
 import { planRun, generatePlanOnly, executePlan } from '../services/plan';
 import { multiAgentRun } from '../services/multiAgent';
 import { getSessionMessages, addMessage, createSession, getSessionInfo, assertSessionOwner } from '../services/session';
 import { getRelevantMemories, extractMemories } from '../services/memory';
 import { getActiveTemplate } from '../services/prompt';
-import { isLLMConfigured, getCurrentModel, setRequestParams, ModelParams, setRequestUserApiKey, getEffectiveApiKey } from '../services/llm';
+import { isLLMConfigured, getCurrentModel, setRequestParams, ModelParams, getEffectiveApiKey, runWithUserCredential, getRequestUserCredential } from '../services/llm';
 import { getLLM } from '../services/llm';
-import { setRequestModelOverride } from '../services/llmProvider';
+import { normalizeProviderId, providerHasModel } from '../services/llmProvider';
 import { recordUsage } from '../services/usage';
-import { SystemMessage, HumanMessage, AIMessage } from '@langchain/core/messages';
+import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 import { ChatOpenAI } from '@langchain/openai';
 import type { ChatMessage } from '../types';
 import { optionalAuth, AuthRequest } from '../middleware/auth';
-import { getDefaultApiKey } from '../services/userApiKey';
+import { resolveUserCredential } from '../services/userApiKey';
+import { runWithAgentOutputDir, getSessionChatOutputDir } from '../services/agentOutput';
+import { resolveUserOutputDir } from '../services/userOutputPreference';
+import { runWithPermissionMode } from '../services/permissionMode';
+import { resolveUserPermissionMode } from '../services/userPermissionPreference';
 import { config } from '../config';
 
-// 辅助函数：设置请求级用户API Key
-async function setupUserApiKey(req: AuthRequest): Promise<void> {
-  if (req.userId) {
-    const userKey = await getDefaultApiKey(req.userId);
-    if (userKey) {
-      setRequestUserApiKey({ apiKey: userKey.api_key, base_url: userKey.base_url || undefined });
-    }
-  }
+/**
+ * 把本次请求放进「用户凭据上下文」（AsyncLocalStorage）。
+ *
+ * 不用模块级变量保存凭据：那是进程级单例，并发请求会互相覆盖 —— A 的请求可能带上
+ * B 的 Key。这里在中间件里用 run() 包住 next()，后续整条 middleware/handler 链都处在
+ * 该上下文中；即便上下文丢失，也只是「读不到凭据」而回退全局配置，绝不会读到别人的 Key。
+ *
+ * 需放在 optionalAuth 之后，才能拿到 req.userId。
+ */
+function userCredentialContext() {
+  return (req: AuthRequest, _res: Response, next: NextFunction) => {
+    resolveUserCredential(req.userId)
+      .catch((e) => {
+        console.warn('[Chat] 读取用户 API Key 失败，回退全局配置:', e instanceof Error ? e.message : String(e));
+        return null;
+      })
+      .then(async (credential) => {
+        // 输出目录与凭据一样必须按用户隔离：在同一条链上一起建立，
+        // 链内的文件工具（create_file / code_interpreter 等）才会落到"我的"目录，
+        // 而不是上一个保存过设置的人的目录。
+        //
+        // 权限模式同样按用户解析后注入：判定层（filePermission / toolPolicy）读的是
+        // 「本次调用链」的模式，所以这里的 full 只影响发起者自己；
+        // 且 runWithPermissionMode 会在 Web 托管后端上强制降级回 sandbox。
+        const [outputDir, mode] = await Promise.all([
+          resolveUserOutputDir(req.userId),
+          resolveUserPermissionMode(req.userId),
+        ]);
+        runWithAgentOutputDir(outputDir, () =>
+          runWithPermissionMode(mode, () => runWithUserCredential(credential, () => next()))
+        );
+      });
+  };
 }
 
 // 从模型输出中解析思考内容（<think>...</think> 标签）
@@ -129,9 +159,7 @@ async function simpleQA(
 
   const messages = [
     new SystemMessage(systemPrompt),
-    ...history.slice(-6).map((m: any) =>
-      m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
-    ),
+    ...buildHistoryMessages(history, 6),
     new HumanMessage(message),
   ];
 
@@ -172,7 +200,7 @@ async function simpleQA(
 const router = Router();
 
 // 非流式对话（同步返回，无 HITL 审批；审批/Plan 前置确认统一走 /api/tasks 任务引擎）
-router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
+router.post('/send', optionalAuth, userCredentialContext(), async (req: AuthRequest, res: Response) => {
   try {
     const { message, sessionId, mode, useAgent, enableThinking, modelParams } = req.body;
 
@@ -180,9 +208,7 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: '消息内容不能为空' });
     }
 
-    // 设置用户API Key（如果已登录且配置了）
-    await setupUserApiKey(req);
-
+    // 用户凭据已由 userCredentialContext() 中间件注入本次调用上下文
     if (!isLLMConfigured() && !req.userId) {
       return res.status(500).json({ error: 'LLM API Key 未配置，请在 .env 文件中设置 LLM_API_KEY 或登录后配置个人API Key' });
     }
@@ -213,35 +239,39 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
     // 添加用户消息
     const userMessageId = await addMessage(sid, 'user', message, actualMode);
 
-    let result;
+    const sessionChatDir = await getSessionChatOutputDir(sid);
     const modelInfo = getCurrentModel();
 
-    if (actualMode === 'qa') {
-      result = await simpleQA(message, history, enableThinking || false);
-    } else if (actualMode === 'agent') {
-      result = await agentRun(message, history, { sessionId: sid, messageId: userMessageId, isDesktop: config.isDesktop });
-    } else if (actualMode === 'multi') {
-      // 多Agent协作模式
-      const multiResult = await multiAgentRun(message, history);
-      result = {
-        answer: multiResult.answer,
-        steps: multiResult.steps,
-        sources: [],
-        plan: multiResult.plan,
-        agentTrace: multiResult.agentTrace,
-        tokenUsage: multiResult.tokenUsage,
-      };
-    } else {
-      // plan模式
-      const planResult = await planRun(message, history);
-      result = {
-        answer: planResult.finalAnswer,
-        steps: planResult.steps,
-        sources: [],
-        plan: planResult.plan,
-        tokenUsage: planResult.tokenUsage,
-      };
-    }
+    // 把本轮文件产物 narrowing 到「总目录/chats/会话创建日期」，
+    // 同一会话后续无论隔多久再次打开、修改，文件始终落在该日期目录。
+    const result: any = await runWithAgentOutputDir(sessionChatDir, async () => {
+      if (actualMode === 'qa') {
+        return await simpleQA(message, history, enableThinking || false);
+      } else if (actualMode === 'agent') {
+        return await agentRun(message, history, { sessionId: sid, messageId: userMessageId, isDesktop: config.isDesktop });
+      } else if (actualMode === 'multi') {
+        // 多Agent协作模式
+        const multiResult = await multiAgentRun(message, history);
+        return {
+          answer: multiResult.answer,
+          steps: multiResult.steps,
+          sources: [],
+          plan: multiResult.plan,
+          agentTrace: multiResult.agentTrace,
+          tokenUsage: multiResult.tokenUsage,
+        };
+      } else {
+        // plan模式
+        const planResult = await planRun(message, history);
+        return {
+          answer: planResult.finalAnswer,
+          steps: planResult.steps,
+          sources: [],
+          plan: planResult.plan,
+          tokenUsage: planResult.tokenUsage,
+        };
+      }
+    });
 
     // 添加助手回复（含复杂字段）
     const assistantMessageId = await addMessage(sid, 'assistant', result.answer, actualMode, {
@@ -251,6 +281,8 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
       plan: (result as any).plan,
       agentTrace: (result as any).agentTrace,
       tokenUsage: (result as any).tokenUsage,
+      // 本轮生成的文件（create_file/write_file/append_file 登记）：消息末尾的文件卡片靠它渲染
+      artifacts: (result as any).artifacts || [],
     });
 
     // 记录 Token 用量
@@ -265,7 +297,6 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
     ).catch(err => console.warn('记录Token用量失败:', err));
 
     setRequestParams(null);
-    setRequestModelOverride(null);
     res.json({
       sessionId: sid,
       answer: result.answer,
@@ -292,7 +323,6 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
   } catch (error) {
     console.error('对话处理失败:', error);
     setRequestParams(null);
-    setRequestModelOverride(null);
     const isProd = process.env.NODE_ENV === 'production';
     res.status(500).json({
       error: '对话处理失败',
@@ -302,7 +332,7 @@ router.post('/send', optionalAuth, async (req: AuthRequest, res: Response) => {
 });
 
 // 图片理解接口（多模态，使用 qwen3.5-ocr 模型）
-router.post('/vision', optionalAuth, async (req: Request, res: Response) => {
+router.post('/vision', optionalAuth, userCredentialContext(), async (req: Request, res: Response) => {
   try {
     const { image, question, sessionId } = req.body;
 
@@ -317,12 +347,25 @@ router.post('/vision', optionalAuth, async (req: Request, res: Response) => {
       return res.status(400).json({ error: '图片大小不能超过5MB' });
     }
 
-    // 设置用户API Key（如果已登录且配置了）
+    // 用户凭据已由 userCredentialContext() 中间件注入本次调用上下文
     const authReq = req as AuthRequest;
-    await setupUserApiKey(authReq);
 
     if (!isLLMConfigured() && !authReq.userId) {
       return res.status(500).json({ error: 'LLM API Key 未配置' });
+    }
+
+    // 多模态模型目前只有百炼提供。用户的 Key 是绑定厂商的：拿 DeepSeek 的 baseUrl
+    // 去请求百炼的模型名必然 404。这里先校验厂商，不支持就明确告知，而不是抛一个难懂的报错。
+    const VISION_MODEL = 'qwen3.5-ocr';
+    const credential = getRequestUserCredential();
+    const credentialSupportsVision = !credential?.providerId
+      || (normalizeProviderId(credential.providerId) === 'bailian'
+        && providerHasModel('bailian', VISION_MODEL));
+
+    if (!credentialSupportsVision) {
+      return res.status(400).json({
+        error: '当前配置的厂商不支持图片识别，请在「设置 → API Key」中添加阿里云百炼的 Key 后重试。',
+      });
     }
 
     // 使用 qwen3.5-ocr 多模态模型（支持用户API Key）
@@ -330,7 +373,7 @@ router.post('/vision', optionalAuth, async (req: Request, res: Response) => {
     const visionLLM = new ChatOpenAI({
       openAIApiKey: effectiveKey.apiKey,
       configuration: { baseURL: effectiveKey.baseUrl },
-      modelName: 'qwen3.5-ocr',
+      modelName: VISION_MODEL,
       temperature: 0.1,
       maxTokens: 1024,
     });

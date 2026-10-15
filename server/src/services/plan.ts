@@ -1,5 +1,6 @@
 import { getLLM } from './llm';
-import { SystemMessage, HumanMessage, AIMessage } from '@langchain/core/messages';
+import { buildHistoryMessages } from './history';
+import { SystemMessage, HumanMessage } from '@langchain/core/messages';
 
 // 从 LLM 响应中提取 token 用量（兼容多种属性路径）
 function extractTokenUsage(response: any): { promptTokens: number; completionTokens: number; totalTokens: number } {
@@ -59,9 +60,7 @@ async function generatePlan(userMessage: string, chatHistory: ChatMessage[]): Pr
   
   const messages = [
     new SystemMessage(PLAN_SYSTEM_PROMPT),
-    ...chatHistory.slice(-4).map(m => 
-      m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
-    ),
+    ...buildHistoryMessages(chatHistory, 4),
     new HumanMessage(`请为以下任务制定执行计划：\n\n${userMessage}`),
   ];
   

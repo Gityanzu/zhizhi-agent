@@ -7,6 +7,7 @@ export { default as documentRoutes } from './document';
 export { default as sessionRoutes } from './session';
 export { default as modelRoutes } from './model';
 export { default as skillRoutes } from './skill';
+export { default as mcpRoutes } from './mcp';
 export { default as usageRoutes } from './usage';
 export { default as statsRoutes } from './stats';
 export { default as memoryRoutes } from './memory';

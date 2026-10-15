@@ -15,6 +15,7 @@
  */
 import { randomUUID } from 'crypto';
 import type { ApprovalRequest } from './agent';
+import { isFullAccess } from './permissionMode';
 
 export type ToolKind = 'safe' | 'read' | 'write' | 'exec' | 'network' | 'db';
 
@@ -80,6 +81,12 @@ export async function gateToolExecution(
   const policy = getToolPolicy(toolName);
   if (!policy.requiresApproval) return null;
 
+  // 完全访问：用户已明确把本机交给 Agent，不再逐次弹确认。
+  // 与 filePermission 同一条件、同一来源（permissionMode.ts 按服务端能力裁决），
+  // 保证"文件放行"和"命令放行"不会出现一个开一个没开的状态。
+  // 注意这里只放开审批，不触碰敏感文件底线 —— 那一条在 filePermission 里硬拒绝。
+  if (isFullAccess()) return null;
+
   if (!context?.requestApproval) {
     return `已安全拒绝：工具「${toolName}」（${policy.kind} 类）当前环境无审批通道，禁止执行`;
   }
@@ -91,5 +98,8 @@ export async function gateToolExecution(
     inRoot: false,
     description: `Agent 请求执行「${toolName}」（${policy.kind}）`,
   });
-  return approved ? null : `用户已拒绝执行工具「${toolName}」`;
+  // 这个布尔值区分不了"用户点了拒绝"和"等待超时被自动拒绝"，
+  // 所以文案不能武断写成"用户已拒绝"，否则模型会据此做出错误判断
+  // （比如认定用户不想要这个工具，直接放弃整条路径）
+  return approved ? null : `工具「${toolName}」未获批准（用户拒绝或等待审批超时），本次未执行`;
 }

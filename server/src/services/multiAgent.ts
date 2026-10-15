@@ -1,10 +1,10 @@
 import { getLLM } from './llm';
 import { tools, agentRun } from './agent';
+import { buildHistoryMessages } from './history';
 import { AgentStep } from '../types';
 import {
   SystemMessage,
   HumanMessage,
-  AIMessage,
 } from '@langchain/core/messages';
 
 // 从 LLM 响应中提取 token 用量（兼容多种属性路径）
@@ -159,9 +159,7 @@ async function runMultiAgentPipeline(
 
   const plannerResponse = await llm.invoke([
     new SystemMessage(PLANNER_PROMPT),
-    ...chatHistory.slice(-3).map(m =>
-      m.role === 'user' ? new HumanMessage(m.content) : new AIMessage(m.content)
-    ),
+    ...buildHistoryMessages(chatHistory, 3),
     new HumanMessage(`请规划以下任务：${userMessage}`),
   ]);
   

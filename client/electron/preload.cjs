@@ -18,6 +18,10 @@ const PUSH_CHANNELS = [
   'backend:status',
   'app:hiddenToTray',
   'shortcut:quickAsk',
+  // 应用菜单点击后推下来的语义化命令（见 menu.cjs）
+  'menu:command',
+  // 内置浏览器状态（URL / 标题 / 加载中 / 可否前进后退），见 browserView.cjs
+  'browser:state',
 ];
 
 function invoke(channel, ...args) {
@@ -46,6 +50,8 @@ const desktop = {
     toggleMaximize: () => invoke('window:toggleMaximize'),
     close: () => invoke('window:close'),
     isMaximized: () => invoke('window:isMaximized'),
+    /* 独立预览窗口：只传"要看哪个文件/哪个网址"，地址由主进程拼（见 previewWindow.cjs） */
+    openPreview: (payload) => invoke('window:openPreview', payload),
   },
 
   /* 本地文件：桌面端相比 Web 端的实质增量 */
@@ -54,6 +60,7 @@ const desktop = {
     pickDirectory: (options) => invoke('dialog:pickDirectory', options),
     readAsBase64: (filePath) => invoke('fs:readAsBase64', filePath),
     saveExport: (payload) => invoke('dialog:saveExport', payload),
+    copyTo: (srcPath, defaultName) => invoke('fs:copyTo', srcPath, defaultName),
     showInFolder: (filePath) => invoke('shell:showItemInFolder', filePath),
     openPath: (targetPath) => invoke('shell:openPath', targetPath),
   },
@@ -88,10 +95,27 @@ const desktop = {
     test: (url) => invoke('serverConfig:test', url),
   },
 
+  /* 工作台内置浏览器。
+   * 注意：真正的网页是主进程的 WebContentsView（原生视图），不是页面里的 iframe。
+   * 渲染层只做三件事：下发指令、上报矩形（CSS 像素即 DIP）、订阅状态推送。
+   * setVisible 必须与页签切换严格同步 —— 原生视图始终浮在 HTML 之上。 */
+  browser: {
+    create: (payload) => invoke('browser:create', payload),
+    setBounds: (bounds) => invoke('browser:setBounds', bounds),
+    setVisible: (visible) => invoke('browser:setVisible', visible),
+    navigate: (url) => invoke('browser:navigate', url),
+    action: (kind) => invoke('browser:action', kind),
+    destroy: () => invoke('browser:destroy'),
+    getState: () => invoke('browser:getState'),
+    onState: (cb) => subscribe('browser:state', cb),
+  },
+
   /* 主进程事件 */
   events: {
     onHiddenToTray: (cb) => subscribe('app:hiddenToTray', cb),
     onQuickAsk: (cb) => subscribe('shortcut:quickAsk', cb),
+    /** 应用菜单命令：主进程只给命令 id，具体动作由渲染层决定 */
+    onMenuCommand: (cb) => subscribe('menu:command', cb),
   },
 
   /** 是否运行在桌面端环境（用于前端做能力探测与降级） */

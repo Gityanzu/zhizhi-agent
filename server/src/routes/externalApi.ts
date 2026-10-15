@@ -2,11 +2,21 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { validateApiKey } from '../services/apiKey';
 import { getLLM, isLLMConfigured } from '../services/llm';
 import { getAvailableModels, getCurrentModel } from '../services/llm';
-import { setRequestParams } from '../services/llm';
+import { setRequestParams, runWithRequestContext } from '../services/llm';
 import { SystemMessage, HumanMessage, AIMessage } from '@langchain/core/messages';
 import type { ChatMessage } from '../types';
 
 const router = Router();
+
+/**
+ * 为整条请求链建立 LLM 上下文。
+ * 对外 API 的 temperature / max_tokens 是请求级参数，放在进程级变量里会被并发调用互相覆盖。
+ */
+function llmRequestContext() {
+  return (_req: Request, _res: Response, next: NextFunction) => {
+    runWithRequestContext({}, () => next());
+  };
+}
 
 // ===== 功能20：对外 API（OpenAI 兼容） =====
 
@@ -49,7 +59,7 @@ function toLangChainMessages(messages: Array<{ role: string; content: string }>)
 }
 
 // POST /api/v1/chat/completions
-router.post('/chat/completions', authMiddleware, async (req: Request, res: Response) => {
+router.post('/chat/completions', authMiddleware, llmRequestContext(), async (req: Request, res: Response) => {
   try {
     if (!isLLMConfigured()) {
       return res.status(503).json({ error: { message: '服务端未配置 LLM，请联系管理员', type: 'server_error' } });

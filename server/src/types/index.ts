@@ -13,6 +13,27 @@ export interface ChatMessage {
   tokenUsage?: any;
   parentId?: string;
   branchId?: string;
+  /** 本轮产出的文件/链接（消息末尾文件卡片的数据源） */
+  artifacts?: MessageArtifact[];
+}
+
+/**
+ * 消息产物：Agent 在本轮真正落盘的文件（或产出给用户的链接）。
+ *
+ * 为什么不用工具结果文本反推：`tool_calls.arguments` 里只有模型传的相对路径/目录名，
+ * 真实落点要经过输出根目录解析与审批回写，只有工具执行处才拿得到最终绝对路径。
+ * 因此由文件工具在写入成功后登记（见 agent.ts 的 recordArtifact），随 SSE 下发并落库。
+ */
+export interface MessageArtifact {
+  /** 本地文件绝对路径；kind='url' 时是 http(s) 链接 */
+  path: string;
+  name: string;
+  /** 字节数（本地文件）；链接不存在 */
+  size?: number;
+  /** file=本地产物；url=外链 */
+  kind: 'file' | 'url';
+  /** 产出它的工具名，便于排查是哪个工具写的 */
+  source?: string;
 }
 
 // 工具调用结果

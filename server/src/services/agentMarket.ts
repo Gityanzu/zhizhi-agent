@@ -269,13 +269,13 @@ export async function getTemplate(id: string): Promise<AgentTemplate | null> {
  * 上传模板（管理员功能）
  */
 export async function uploadTemplate(
-  template: AgentTemplate
+  template: Omit<AgentTemplate, 'id'>
 ): Promise<AgentTemplate> {
   loadTemplates();
 
   const newTemplate: AgentTemplate = {
     ...template,
-    id: template.id || uuidv4(),
+    id: uuidv4(),
     downloadCount: 0,
     rating: 0,
     reviewCount: 0,

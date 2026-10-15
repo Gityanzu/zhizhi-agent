@@ -12,6 +12,7 @@
  *   electron:start → node scripts/run-electron.cjs --host-server
  */
 const { spawn, execSync } = require('child_process');
+const path = require('path');
 
 if (process.platform === 'win32') {
   try {
@@ -37,6 +38,10 @@ if (typeof electronBin !== 'string') {
 }
 
 const args = process.argv.slice(2);
+// 未显式指定应用路径时默认加载 client 目录（package.json main → electron/main.cjs）。
+// 直接 spawn electron.exe 不像 electron.cmd 那样隐式带上 `.`，缺了它就会显示默认欢迎页。
+const hasAppPath = args.some((a) => !a.startsWith('-'));
+if (!hasAppPath) args.unshift(path.resolve(__dirname, '..'));
 
 const child = spawn(electronBin, args, {
   stdio: 'inherit',

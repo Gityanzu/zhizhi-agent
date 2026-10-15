@@ -167,6 +167,9 @@ async function ensureBackend({ required = false } = {}) {
     return getState();
   }
 
+  // setEncoding：跨 chunk 的多字节 UTF-8 字符不会被截断成乱码
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
   child.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`));
   child.stderr.on('data', (d) => process.stderr.write(`[backend] ${d}`));
 

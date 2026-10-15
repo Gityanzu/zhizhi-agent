@@ -349,10 +349,19 @@ async function onCommand(command: string | number | object, a: MessageArtifact) 
   max-height: 320px;
   overflow-y: auto;
 }
+/* 关键：卡片外层是 el-dropdown（默认 inline-flex），必须在 flex/grid 链路上放开 min-width，
+   否则长文件名的 min-content 会把卡片撑出栅格列，名字盖住 meta 行 */
+.artifacts-list :deep(.el-dropdown) {
+  min-width: 0;
+  max-width: 100%;
+}
 .artifact-card {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 6px 8px;
   border-radius: 6px;
   cursor: pointer;
@@ -384,11 +393,15 @@ async function onCommand(command: string | number | object, a: MessageArtifact) 
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 100%;
 }
 .artifact-meta {
   margin-top: 2px;
   font-size: 11px;
   color: var(--el-text-color-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .artifact-dot {
   margin: 0 4px;

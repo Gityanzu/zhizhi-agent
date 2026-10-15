@@ -1,4 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
+import * as fs from 'fs';
+import * as path from 'path';
 import { usePostgres, query } from '../db';
 import { getCurrentModel } from './llm';
 
@@ -67,15 +69,88 @@ export async function recordUsage(
   totalTokens: number
 ): Promise<void> {
   const costCents = estimateCost(model, promptTokens, completionTokens);
-  
+  const record: UsageRecord = {
+    id: uuidv4(),
+    sessionId,
+    messageId,
+    model,
+    promptTokens,
+    completionTokens,
+    totalTokens,
+    costCents,
+    createdAt: new Date().toISOString(),
+  };
+
   if (usePostgres) {
     await query(
       `INSERT INTO usage_stats (id, session_id, message_id, model, prompt_tokens, completion_tokens, total_tokens, cost_cents, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-      [uuidv4(), sessionId, messageId || null, model, promptTokens, completionTokens, totalTokens, costCents]
+      [record.id, sessionId, messageId || null, model, promptTokens, completionTokens, totalTokens, costCents]
     );
+    return;
   }
-  // JSON 模式下暂不记录用量统计（需要时可扩展）
+
+  // JSON 模式（桌面端/本地默认）：落盘到 data/usage.json，徽标与统计弹窗才有数据
+  loadUsageFromFile();
+  usageRecords.set(record.id, record);
+  // 控制文件增长：只保留最近 2 万条（单用户场景足够）
+  if (usageRecords.size > 20000) {
+    const overflow = [...usageRecords.values()]
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .slice(0, usageRecords.size - 20000);
+    for (const r of overflow) usageRecords.delete(r.id);
+  }
+  persistUsageFile();
+}
+
+/* --------------------- JSON 模式用量存储（data/usage.json） --------------------- */
+
+const USAGE_FILE = path.resolve(__dirname, '../../data/usage.json');
+const usageRecords = new Map<string, UsageRecord>();
+let usageLoaded = false;
+
+function loadUsageFromFile(): void {
+  if (usageLoaded) return;
+  usageLoaded = true;
+  if (!fs.existsSync(USAGE_FILE)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf-8')) as UsageRecord[];
+    for (const r of raw) usageRecords.set(r.id, r);
+  } catch (error) {
+    console.warn('加载用量统计失败（忽略，按空开始）:', error);
+  }
+}
+
+function persistUsageFile(): void {
+  try {
+    const dir = path.dirname(USAGE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(USAGE_FILE, JSON.stringify([...usageRecords.values()], null, 2), 'utf-8');
+  } catch (error) {
+    console.error('保存用量统计失败:', error);
+  }
+}
+
+function aggregateSession(records: UsageRecord[]) {
+  const byModelMap = new Map<string, { totalTokens: number; count: number }>();
+  const acc = { totalPromptTokens: 0, totalCompletionTokens: 0, totalTokens: 0, totalCostCents: 0 };
+  for (const r of records) {
+    acc.totalPromptTokens += r.promptTokens || 0;
+    acc.totalCompletionTokens += r.completionTokens || 0;
+    acc.totalTokens += r.totalTokens || 0;
+    acc.totalCostCents += r.costCents || 0;
+    const m = byModelMap.get(r.model) || { totalTokens: 0, count: 0 };
+    m.totalTokens += r.totalTokens || 0;
+    m.count += 1;
+    byModelMap.set(r.model, m);
+  }
+  return {
+    ...acc,
+    messageCount: records.length,
+    byModel: [...byModelMap.entries()]
+      .map(([model, m]) => ({ model, ...m }))
+      .sort((a, b) => b.totalTokens - a.totalTokens),
+  };
 }
 
 // 获取会话的 Token 用量统计
@@ -131,14 +206,9 @@ export async function getSessionUsage(sessionId: string): Promise<{
     };
   }
   
-  return {
-    totalPromptTokens: 0,
-    totalCompletionTokens: 0,
-    totalTokens: 0,
-    totalCostCents: 0,
-    messageCount: 0,
-    byModel: [],
-  };
+  // JSON 模式
+  loadUsageFromFile();
+  return aggregateSession([...usageRecords.values()].filter((r) => r.sessionId === sessionId));
 }
 
 // 获取全局 Token 用量统计
@@ -173,13 +243,16 @@ export async function getGlobalUsage(): Promise<{
     };
   }
   
+  // JSON 模式：全局聚合
+  loadUsageFromFile();
+  const agg = aggregateSession([...usageRecords.values()]);
   return {
-    totalPromptTokens: 0,
-    totalCompletionTokens: 0,
-    totalTokens: 0,
-    totalCostCents: 0,
-    sessionCount: 0,
-    messageCount: 0,
+    totalPromptTokens: agg.totalPromptTokens,
+    totalCompletionTokens: agg.totalCompletionTokens,
+    totalTokens: agg.totalTokens,
+    totalCostCents: agg.totalCostCents,
+    sessionCount: new Set([...usageRecords.values()].map((r) => r.sessionId)).size,
+    messageCount: agg.messageCount,
   };
 }
 
@@ -205,7 +278,18 @@ export async function getObservabilityStats(): Promise<{
     recentToolCalls: [],
   };
   
-  if (!usePostgres) return defaultResult;
+  if (!usePostgres) {
+    // JSON 模式：总览里的 token 合计从本地用量记录取（其余统计暂不支持）
+    loadUsageFromFile();
+    const records = [...usageRecords.values()];
+    return {
+      ...defaultResult,
+      overview: {
+        ...defaultResult.overview,
+        totalTokens: records.reduce((sum, r) => sum + (r.totalTokens || 0), 0),
+      },
+    };
+  }
   
   try {
     // 总览统计

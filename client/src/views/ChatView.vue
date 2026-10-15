@@ -91,7 +91,7 @@
                 </div>
               </div>
             </template>
-            <div class="token-badge" v-if="chatStore.lastTokenUsage || chatStore.sessionUsage">
+            <div class="token-badge" v-if="chatStore.lastTokenUsage || chatStore.sessionUsage" @click="showTokenStats = true">
               <el-icon><DataAnalysis /></el-icon>
               <span>{{ chatStore.lastTokenUsage?.totalTokens || chatStore.sessionUsage?.totalTokens || 0 }}</span>
             </div>
@@ -188,6 +188,7 @@
       <DocumentPanel v-if="showDocumentPanel" @close="showDocumentPanel = false" />
       
       <ObservabilityPanel v-model="showObservability" />
+      <TokenStatsDialog v-model="showTokenStats" />
       <MemoryPanel v-model="showMemory" />
       <PromptPanel v-model="showPrompt" />
       <ModelParamsPanel v-model="showModelParams" />
@@ -366,6 +367,7 @@ import ChatArea from '@/components/chat/ChatArea.vue'
 import ResourcePanel from '@/components/workbench/ResourcePanel.vue'
 import DocumentPanel from '@/components/knowledge/DocumentPanel.vue'
 import ObservabilityPanel from '@/components/agent/ObservabilityPanel.vue'
+import TokenStatsDialog from '@/components/chat/TokenStatsDialog.vue'
 import MemoryPanel from '@/components/knowledge/MemoryPanel.vue'
 import PromptPanel from '@/components/knowledge/PromptPanel.vue'
 import ModelParamsPanel from '@/components/agent/ModelParamsPanel.vue'
@@ -388,6 +390,7 @@ const chatStore = useChatStore()
 const router = useRouter()
 const showDocumentPanel = ref(false)
 const showObservability = ref(false)
+const showTokenStats = ref(false)
 const showMemory = ref(false)
 const showPrompt = ref(false)
 const showModelParams = ref(false)

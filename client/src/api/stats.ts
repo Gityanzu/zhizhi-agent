@@ -13,6 +13,7 @@ export async function getGlobalUsage() {
 }
 
 export async function getSessionUsage(sessionId: string) {
-  const res = await api.get(`/usage/session/${sessionId}`);
+  // 注意必须带 /api 前缀：Vite 代理只转发 /api/*，缺了会 404 导致徽标无数据
+  const res = await api.get(`/api/usage/session/${sessionId}`);
   return res.data;
 }

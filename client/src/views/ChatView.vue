@@ -62,15 +62,9 @@
         <div class="header-right">
           <!-- 桌面端：侧边栏开关在原生菜单（视图 → 切换侧边栏，Ctrl+B）；
                Web 端没有原生菜单，这里保留按钮 -->
-          <el-tooltip v-if="!isMobile && !isDesktop" :content="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'" placement="bottom">
+          <el-tooltip v-if="!isMobile && !isDesktopApp" :content="sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'" placement="bottom">
             <button class="icon-btn" @click="toggleSidebar">
               <el-icon :size="18"><component :is="sidebarCollapsed ? Expand : Fold" /></el-icon>
-            </button>
-          </el-tooltip>
-          <!-- 打开/关闭右侧资源面板 -->
-          <el-tooltip v-if="!isMobile" :content="rightPanelVisible ? '收起右侧栏' : '打开右侧栏'" placement="bottom">
-            <button class="icon-btn" :class="{ active: rightPanelVisible }" @click="toggleRightPanel">
-              <el-icon :size="18"><component :is="rightPanelVisible ? DArrowRight : DArrowLeft" /></el-icon>
             </button>
           </el-tooltip>
           <!-- 打开/关闭右侧资源面板 -->

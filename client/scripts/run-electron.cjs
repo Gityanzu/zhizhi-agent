@@ -22,7 +22,20 @@ if (process.platform === 'win32') {
   }
 }
 
-const electronBin = process.platform === 'win32' ? 'electron.cmd' : 'electron';
+// 解析 electron 可执行文件的真实路径（node_modules/electron 导出 dist/electron.exe 路径）。
+// 不能 spawn 'electron.cmd'：Node ≥18.20 出于 CVE-2024-27980 禁止直接 spawn .cmd/.bat（EINVAL）。
+let electronBin;
+try {
+  electronBin = require('electron');
+} catch {
+  console.error('[run-electron] 未找到 electron，请先 npm install');
+  process.exit(1);
+}
+if (typeof electronBin !== 'string') {
+  console.error('[run-electron] 请用 node 运行本脚本（不要在 Electron 内执行）');
+  process.exit(1);
+}
+
 const args = process.argv.slice(2);
 
 const child = spawn(electronBin, args, {

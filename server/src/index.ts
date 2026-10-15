@@ -13,7 +13,7 @@ import {
   codeRoutes, agentsRoutes, customToolsRoutes, workflowsRoutes, dbConnectionsRoutes,
   shareRoutes, importRoutes, apiKeysRoutes, externalApiRoutes, userRoutes,
   authRoutes, userApiKeysRoutes, agentMarketRoutes, ratingRoutes,
-  analyticsRoutes, mcpRoutes,
+  analyticsRoutes, mcpRoutes, avatarsRouter,
   taskRoutes,
 } from './routes';
 import commentRoutes from './routes/comment';
@@ -187,6 +187,8 @@ app.use('/api/api-keys', apiKeysRoutes);
 app.use('/api/v1', externalApiRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/auth', authRoutes);
+// 头像公开访问（<img> 无法带鉴权头；文件名白名单 + 不可猜命名兜底安全性）
+app.use('/api/avatars', avatarsRouter);
 app.use('/api/user-api-keys', userApiKeysRoutes);
 app.use('/api/mcp', mcpRoutes);
 app.use('/api/agent-market', agentMarketRoutes);

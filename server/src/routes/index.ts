@@ -23,6 +23,7 @@ export { default as apiKeysRoutes } from './apiKeys';
 export { default as externalApiRoutes } from './externalApi';
 export { default as userRoutes } from './user';
 export { default as authRoutes } from './auth';
+export { avatarsRouter } from './auth';
 export { default as userApiKeysRoutes } from './userApiKeys';
 export { default as agentMarketRoutes } from './agentMarket';
 export { default as ratingRoutes } from './rating';

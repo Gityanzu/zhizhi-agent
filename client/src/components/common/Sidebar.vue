@@ -1001,9 +1001,17 @@ function handleSelectSession(id: string) {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: #fff;        /* 默认 User 图标白色（有头像时被 img 覆盖） */
   font-size: 18px;
+  overflow: hidden; /* 大尺寸图片/GIF 按容器裁剪，不允许按固有尺寸撑开 */
   flex-shrink: 0;
+}
+
+.user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .user-detail {

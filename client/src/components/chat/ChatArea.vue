@@ -330,7 +330,12 @@
               <!-- 模型选择器 -->
               <el-dropdown trigger="click" class="model-dropdown">
                 <button class="model-select-btn">
-                  <el-icon class="model-icon"><Cpu /></el-icon>
+                  <ProviderIcon
+                    class="model-icon"
+                    :name="chatStore.currentModel?.name || ''"
+                    :provider="currentProviderHint"
+                    :size="16"
+                  />
                   <span class="model-name">{{ chatStore.currentModel?.name || '选择模型' }}</span>
                   <el-tag v-if="chatStore.currentModel?.free" size="small" type="success" effect="plain" class="model-tag">免费</el-tag>
                   <el-icon class="arrow-icon"><ArrowDown /></el-icon>
@@ -341,6 +346,7 @@
                     <template v-for="g in chatStore.modelGroups" :key="g.providerId">
                       <div class="model-group-header">
                         <span class="model-group-name">
+                          <ProviderIcon :name="g.providerName" :provider="g.providerId" :size="14" />
                           {{ g.providerName }}
                           <el-tag v-if="g.type === 'ollama'" size="small" :type="g.available ? 'success' : 'info'" effect="plain">
                             {{ g.available ? '本地' : '未检测到' }}
@@ -361,7 +367,7 @@
                         disabled
                         class="ollama-offline"
                       >
-                        <el-icon class="item-icon"><Cpu /></el-icon>
+                        <ProviderIcon class="item-icon" name="Ollama" provider="ollama" :size="16" />
                         <span>Ollama未运行</span>
                       </el-dropdown-item>
                       <el-dropdown-item
@@ -370,7 +376,12 @@
                         :class="{ active: selectedModel === model.id }"
                         @click="selectedModel = model.id; handleModelChange(model.id, g.providerId)"
                       >
-                        <el-icon class="item-icon"><Cpu /></el-icon>
+                        <ProviderIcon
+                          class="item-icon"
+                          :name="model.name"
+                          :provider="`${g.providerId} ${g.providerName}`"
+                          :size="16"
+                        />
                         <span>{{ model.name }}</span>
                         <el-tag v-if="model.free" size="small" type="success" effect="plain">免费</el-tag>
                         <el-icon v-if="selectedModel === model.id" class="check-icon"><Check /></el-icon>
@@ -431,6 +442,7 @@ import { getMcpServers, updateMcpServer, type McpServer } from '@/api/mcp'
 import { useSpeech } from '@/composables/useSpeech'
 import MessageItem from './MessageItem.vue'
 import PermissionModeSelect from './PermissionModeSelect.vue'
+import ProviderIcon from '../common/ProviderIcon.vue'
 import SkillDetailDialog from '@/components/common/SkillDetailDialog.vue'
 import AllArtifactsDrawer from './AllArtifactsDrawer.vue'
 import type { MessageArtifact } from '@/types'
@@ -507,6 +519,12 @@ const sessionArtifacts = computed<MessageArtifact[]>(() => {
 // 模型选择相关状态
 const selectedModel = ref('')
 const selectedSkill = ref('')
+
+// 当前选中模型的厂商提示（供品牌图标判定；模型名关键词匹配为主，厂商为辅）
+const currentProviderHint = computed(() => {
+  const g = chatStore.modelGroups?.find((g: any) => g.models?.some((m: any) => m.id === selectedModel.value))
+  return g ? `${g.providerId} ${g.providerName}` : ''
+})
 
 const modes = [
   { value: 'qa', label: '问答', icon: ChatDotRound },

@@ -337,25 +337,7 @@
                 </button>
                 <template #dropdown>
                   <el-dropdown-menu class="model-dropdown-menu">
-                    <div class="dropdown-section">
-                      <div class="dropdown-section-title">
-                        技能
-                        <el-button size="small" text class="skill-reload-btn" :loading="reloadingSkills" @click.stop="handleReloadSkills">重载技能库</el-button>
-                      </div>
-                      <el-dropdown-item 
-                        v-for="skill in chatStore.skills" 
-                        :key="skill.id"
-                        :class="{ active: selectedSkill === skill.id }"
-                        @click="selectedSkill = skill.id; handleSkillChange(skill.id)"
-                      >
-                        <span class="item-icon">{{ skill.icon }}</span>
-                        <span>{{ skill.name }}</span>
-                        <el-tag v-if="skill.source === 'file'" size="small" type="warning" effect="plain" class="skill-source-tag">库</el-tag>
-                        <el-icon class="skill-detail-btn" title="查看技能详情" @click.stop="openSkillDetail(skill.id)"><InfoFilled /></el-icon>
-                        <el-icon v-if="selectedSkill === skill.id" class="check-icon"><Check /></el-icon>
-                      </el-dropdown-item>
-                    </div>
-                    <el-dropdown-item divided class="dropdown-section-title" disabled>模型</el-dropdown-item>
+                    <el-dropdown-item class="dropdown-section-title" disabled>模型</el-dropdown-item>
                     <template v-for="g in chatStore.modelGroups" :key="g.providerId">
                       <div class="model-group-header">
                         <span class="model-group-name">
@@ -394,6 +376,10 @@
                         <el-icon v-if="selectedModel === model.id" class="check-icon"><Check /></el-icon>
                       </el-dropdown-item>
                     </template>
+                    <el-dropdown-item divided class="model-config-item" @click="router.push('/settings')">
+                      <el-icon class="item-icon"><Setting /></el-icon>
+                      <span>配置自定义模型</span>
+                    </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -1123,6 +1109,8 @@ watch(
   padding: 14px 18px 10px;
   transition: all 0.2s ease;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  /* 容器查询锚点：输入区宽度随中栏收缩时，模型按钮从「图标+名称」收成纯图标（见下方 @container） */
+  container-type: inline-size;
 }
 
 .input-box:focus-within {
@@ -1325,6 +1313,37 @@ watch(
   cursor: pointer;
   transition: all 0.2s;
   max-width: 200px;
+  min-width: 0;
+}
+
+/* 宽度允许收缩：名称超长省略，绝不把发送按钮挤出去 */
+.input-right-actions {
+  min-width: 0;
+}
+.input-right-actions .model-dropdown {
+  min-width: 0;
+  flex-shrink: 1;
+}
+.input-right-actions .send-btn,
+.input-right-actions .stop-btn,
+.input-right-actions .action-btn {
+  flex-shrink: 0; /* 发送/停止/麦克风/思考开关永远保位 */
+}
+.model-name {
+  max-width: 160px;
+}
+
+/* 中栏收窄：模型按钮收成纯图标（对标 WorkBuddy），容器查询按输入框实际宽度触发 */
+@container (max-width: 620px) {
+  .model-select-btn {
+    padding: 5px 8px;
+    max-width: none;
+  }
+  .model-name,
+  .model-tag,
+  .model-select-btn .arrow-icon {
+    display: none;
+  }
 }
 
 .model-select-btn:hover {

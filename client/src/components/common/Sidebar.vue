@@ -378,6 +378,12 @@ function onSettingsUpdated() {
 
 onMounted(() => {
   loadUserProfile()
+  // 登录用户的昵称/头像以 users 表（authStore）为准：
+  // 组件挂载时 authStore.user 可能尚未拉取（早于 App 层的 fetchCurrentUser），
+  // 不主动拉取就会一直回退到旧单例 profile，出现「侧边栏与设置页昵称对不上」
+  if (authStore.token) {
+    authStore.fetchCurrentUser().catch(() => {})
+  }
   window.addEventListener('user-settings-updated', onSettingsUpdated)
 })
 

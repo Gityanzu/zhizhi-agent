@@ -11,24 +11,55 @@
       <el-tab-pane label="基本资料" name="profile">
         <div class="settings-section">
           <div class="form-item">
+            <label>头像</label>
+            <div class="avatar-upload">
+              <el-tooltip :content="profile.avatar ? '点击更换头像' : '点击上传头像'" placement="top">
+                <div
+                  class="avatar-preview avatar-clickable"
+                  :class="{ uploading: uploadingAvatar }"
+                  v-loading="uploadingAvatar"
+                  @click="avatarInputRef?.click()"
+                >
+                  <img v-if="profile.avatar" :src="profile.avatar" alt="头像" />
+                  <el-icon v-else :size="32"><User /></el-icon>
+                </div>
+              </el-tooltip>
+              <div class="avatar-ops">
+                <input
+                  ref="avatarInputRef"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  style="display: none"
+                  @change="onAvatarFileChange"
+                />
+                <el-button size="small" :icon="User" :loading="uploadingAvatar" @click="avatarInputRef?.click()">上传头像</el-button>
+                <el-button v-if="profile.avatar" size="small" text type="danger" @click="handleRemoveAvatar">清除头像</el-button>
+                <div class="avatar-hint">支持 jpg/png/webp/gif，不超过 5MB</div>
+              </div>
+            </div>
+          </div>
+          <div class="form-item">
             <label>昵称</label>
-            <el-input v-model="profile.nickname" placeholder="请输入昵称" />
+            <el-input v-model="profile.nickname" placeholder="请输入昵称" maxlength="50" />
+          </div>
+          <div class="form-item">
+            <label>邮箱</label>
+            <el-input v-model="profile.email" placeholder="用于找回密码与通知" />
+          </div>
+          <div class="form-item">
+            <label>个人简介</label>
+            <el-input
+              v-model="profile.bio"
+              type="textarea"
+              :rows="2"
+              placeholder="介绍一下自己（不超过 200 字）"
+              maxlength="200"
+              show-word-limit
+            />
           </div>
           <div class="form-item">
             <label>角色/职位</label>
             <el-input v-model="profile.role" placeholder="请输入角色或职位" />
-          </div>
-          <div class="form-item">
-            <label>头像</label>
-            <div class="avatar-upload">
-              <div class="avatar-preview" v-if="profile.avatar">
-                <img :src="profile.avatar" alt="头像" />
-              </div>
-              <div class="avatar-placeholder" v-else>
-                <el-icon :size="32"><User /></el-icon>
-              </div>
-              <el-input v-model="profile.avatar" placeholder="输入头像URL（可选）" style="flex:1" />
-            </div>
           </div>
           <el-button type="primary" @click="saveProfile" :loading="saving">保存资料</el-button>
         </div>
@@ -189,6 +220,7 @@ import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { User, Download, Warning, Cpu } from '@element-plus/icons-vue';
 import { useAuthStore } from '../../stores/auth';
+import { uploadAvatar, removeAvatar as removeAvatarApi, updateProfile as authUpdateProfile } from '../../api/auth';
 import { getUserApiKeys, addUserApiKey, deleteUserApiKey, setDefaultApiKey, getActiveApiKey, getProviderOptions } from '../../api/userApiKey';
 import { getUserSettings, updateUserProfile, updateUserPreferences, deleteUserSettingsApiKey, exportUserData, importUserData } from '../../api/userSettings';
 import { useChatStore } from '../../stores/chat';
@@ -215,7 +247,9 @@ const saving = ref(false);
 const exporting = ref(false);
 const importing = ref(false);
 
-const profile = reactive({ nickname: '', role: '', avatar: '' });
+const profile = reactive({ nickname: '', role: '', avatar: '', email: '', bio: '' });
+const uploadingAvatar = ref(false);
+const avatarInputRef = ref<HTMLInputElement>();
 const preferences = reactive({
   theme: 'dark',
   defaultModel: 'qwen3.8-flash',
@@ -271,8 +305,25 @@ async function chooseOutputDir() {
 
 async function loadSettings() {
   try {
+    // 打开设置时强制刷新登录身份（users 表），避免读到陈旧的 authStore 缓存
+    // 导致「设置页显示的昵称与侧边栏/数据库对不上」
+    if (authStore.token) {
+      await authStore.fetchCurrentUser();
+    }
     const data = await getUserSettings();
-    Object.assign(profile, data.profile);
+    // 身份字段（昵称/邮箱/简介/头像）以 users 表（authStore）为准；
+    // role 是旧单例 profile 的展示字段，继续从 user_settings 读
+    const authUser = authStore.user;
+    if (authUser) {
+      profile.nickname = authUser.nickname || authUser.username || '';
+      profile.email = authUser.email || '';
+      profile.bio = authUser.bio || '';
+      profile.avatar = authUser.avatar || '';
+    } else {
+      profile.nickname = data.profile?.nickname || '';
+      profile.avatar = data.profile?.avatar || '';
+    }
+    profile.role = data.profile?.role || '';
     Object.assign(preferences, data.preferences);
     // 权限模式交给共享 store（同一个下拉组件在输入框工具栏也有一份），顺手把刚拉到的数据喂给它
     permissionStore.applyFromSettings(data);
@@ -346,13 +397,68 @@ function goToLogin() {
 async function saveProfile() {
   saving.value = true;
   try {
-    await updateUserProfile(profile);
+    // 身份字段（昵称/邮箱/简介）只写 users 表；
+    // 旧单例 profile 仅保留 role/头像展示字段 —— 昵称双写正是「侧边栏与设置页对不上」的根源
+    await authUpdateProfile({
+      nickname: profile.nickname,
+      email: profile.email || undefined,
+      bio: profile.bio || undefined,
+    });
+    await updateUserProfile({ role: profile.role, avatar: profile.avatar });
+    // 刷新 authStore，让侧边栏/顶栏的头像与昵称立即同步
+    await authStore.fetchCurrentUser();
     ElMessage.success('资料已保存');
     emit('saved');
-  } catch {
-    ElMessage.error('保存失败');
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || '保存失败');
   } finally {
     saving.value = false;
+  }
+}
+
+/* ---------------- 头像上传 ---------------- */
+
+async function onAvatarFileChange(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  // 前端预校验（后端同样校验）
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+    ElMessage.warning('仅支持 jpg/png/webp/gif 格式');
+    (e.target as HTMLInputElement).value = '';
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    ElMessage.warning('图片不能超过 5MB');
+    (e.target as HTMLInputElement).value = '';
+    return;
+  }
+
+  uploadingAvatar.value = true;
+  try {
+    const res = await uploadAvatar(file);
+    profile.avatar = res.data.user?.avatar || '';
+    await authStore.fetchCurrentUser();
+    ElMessage.success('头像已更新');
+    emit('saved');
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || '头像上传失败');
+  } finally {
+    uploadingAvatar.value = false;
+    if (avatarInputRef.value) avatarInputRef.value.value = '';
+  }
+}
+
+async function handleRemoveAvatar() {
+  uploadingAvatar.value = true;
+  try {
+    await removeAvatarApi();
+    profile.avatar = '';
+    await authStore.fetchCurrentUser();
+    ElMessage.success('头像已清除');
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.error || '清除失败');
+  } finally {
+    uploadingAvatar.value = false;
   }
 }
 
@@ -501,6 +607,28 @@ watch(visible, v => { if (v) loadSettings(); });
   display: flex;
   gap: 12px;
   align-items: center;
+}
+.avatar-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.avatar-clickable:hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+.avatar-clickable.uploading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+.avatar-ops {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.avatar-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 .avatar-preview,

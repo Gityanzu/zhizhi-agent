@@ -67,7 +67,14 @@ pipeline {
     }
 
     stage('构建镜像 Build Images') {
-      when { anyOf { branch 'main'; branch 'dev'; tag 'v*' } }
+      // branch 条件依赖 BRANCH_NAME（仅 multibranch 任务有）；普通 pipeline 任务
+      // 用 GIT_BRANCH（checkout scm 设置），tag 构建用 TAG_NAME
+      when {
+        anyOf {
+          tag 'v*'
+          expression { env.GIT_BRANCH in ['dev', 'main', 'origin/dev', 'origin/main'] }
+        }
+      }
       steps {
         // 一次构建，多处部署：产物镜像打 git sha 标签，部署阶段只拉不改
         runCmd("docker build -f deploy/Dockerfile.server -t ${env.SERVER_IMAGE} .")
@@ -96,7 +103,14 @@ pipeline {
     // ─────────────────────────────────────────────────────────────
 
     stage('部署 Deploy（docker compose）') {
-      when { anyOf { branch 'main'; branch 'dev'; tag 'v*' } }
+      // branch 条件依赖 BRANCH_NAME（仅 multibranch 任务有）；普通 pipeline 任务
+      // 用 GIT_BRANCH（checkout scm 设置），tag 构建用 TAG_NAME
+      when {
+        anyOf {
+          tag 'v*'
+          expression { env.GIT_BRANCH in ['dev', 'main', 'origin/dev', 'origin/main'] }
+        }
+      }
       steps {
         // 首次运行若无 deploy/.env，从模板复制一份供填写密钥
         runCmd(
@@ -135,7 +149,14 @@ pipeline {
     // ─────────────────────────────────────────────────────────────
 
     stage('健康检查 Health Check') {
-      when { anyOf { branch 'main'; branch 'dev'; tag 'v*' } }
+      // branch 条件依赖 BRANCH_NAME（仅 multibranch 任务有）；普通 pipeline 任务
+      // 用 GIT_BRANCH（checkout scm 设置），tag 构建用 TAG_NAME
+      when {
+        anyOf {
+          tag 'v*'
+          expression { env.GIT_BRANCH in ['dev', 'main', 'origin/dev', 'origin/main'] }
+        }
+      }
       steps {
         // retry 步骤没有 delay 参数，用 sleep 控制重试间隔（先睡再试，等效"每 5s 一次"）
         retry(count: 10) {

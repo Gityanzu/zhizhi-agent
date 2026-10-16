@@ -18,7 +18,7 @@ pipeline {
   agent any
 
   options {
-    timestamps
+    timestamps()
     disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '20'))
     timeout(time: 60, unit: 'MINUTES')
@@ -138,7 +138,9 @@ pipeline {
     stage('健康检查 Health Check') {
       when { anyOf { branch 'main'; tag 'v*' } }
       steps {
-        retry(count: 10, delay: 5) {
+        // retry 步骤没有 delay 参数，用 sleep 控制重试间隔（先睡再试，等效"每 5s 一次"）
+        retry(count: 10) {
+          sleep 5
           runCmd(
             "curl -fsS '${env.HEALTH_URL}' || { docker compose -f deploy/docker-compose.yml logs --tail=100 server; exit 1; }",
             // 注意：Groovy 双引号里 $_ 会被当成插值表达式，必须转义为 \$

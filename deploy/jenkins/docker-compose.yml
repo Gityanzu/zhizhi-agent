@@ -26,6 +26,8 @@ services:
       - '50000:50000' # inbound agent（暂用不到，预留）
     environment:
       JAVA_OPTS: -Djenkins.install.runSetupWizard=false -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true
+      # 子路径运行：网关 nginx 把 /jenkins/ 反代到这里（Web UI 变为 http://localhost:80/jenkins/）
+      JENKINS_OPTS: --prefix=/jenkins
       TZ: Asia/Shanghai
       ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
       ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-zhizhi123}
@@ -34,6 +36,15 @@ services:
       - ./init.groovy.d:/var/jenkins_home/init.groovy.d
       - ../..:/workspace/zhizhi-agent:ro
       - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - zhizhi-app
+
+# 接入应用栈网络，让 zhizhi-agent 项目的 gateway 容器能按服务名 jenkins 解析
+networks:
+  zhizhi-app:
+    external: true
+    name: zhizhi-agent_default
 
 volumes:
   jenkins_home:

@@ -29,7 +29,9 @@ pipeline {
     SERVER_IMAGE = "zhizhi-server:${env.GIT_COMMIT?.take(7) ?: 'local'}"
     CLIENT_IMAGE = "zhizhi-client:${env.GIT_COMMIT?.take(7) ?: 'local'}"
     WEB_PORT     = '8080'
-    HEALTH_URL   = "http://localhost:${WEB_PORT}/api/health"
+    // Jenkins 跑在容器里时 localhost 是容器自身，健康检查要打宿主机暴露的端口；
+    // host.docker.internal 在 Docker Desktop（Windows 宿主直装/容器化 Jenkins）下都可用
+    HEALTH_URL   = "http://host.docker.internal:${WEB_PORT}/api/health"
   }
 
   stages {
@@ -139,7 +141,8 @@ pipeline {
         retry(count: 10, delay: 5) {
           runCmd(
             "curl -fsS '${env.HEALTH_URL}' || { docker compose -f deploy/docker-compose.yml logs --tail=100 server; exit 1; }",
-            "try { Invoke-RestMethod -Uri '${env.HEALTH_URL}' -TimeoutSec 10 | ConvertTo-Json -Compress | Write-Host } catch { Write-Host \"健康检查失败：$($_.Exception.Message)\"; docker compose -f deploy/docker-compose.yml logs --tail=100 server; exit 1 }"
+            // 注意：Groovy 双引号里 $_ 会被当成插值表达式，必须转义为 \$
+            "try { Invoke-RestMethod -Uri '${env.HEALTH_URL}' -TimeoutSec 10 | ConvertTo-Json -Compress | Write-Host } catch { Write-Host \"健康检查失败：\$(\$_.Exception.Message)\"; docker compose -f deploy/docker-compose.yml logs --tail=100 server; exit 1 }"
           )
         }
       }

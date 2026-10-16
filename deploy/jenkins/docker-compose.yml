@@ -1,0 +1,39 @@
+# ===== Jenkins 实例（本地一键起） =====
+#
+# 用法（仓库根目录执行）：
+#   docker compose -f deploy/jenkins/docker-compose.yml up -d --build
+#
+# 起来后浏览器打开 http://localhost:8180 （admin / zhizhi123），
+# 任务 zhizhi-agent 已自动创建，点「Build」即跑 Jenkinsfile 全流程自动部署。
+#
+# 说明：
+#   - /var/run/docker.sock 挂载：流水线里的 docker build/compose 直接操作
+#     Docker Desktop 守护进程，与手动部署共用同一套镜像/容器/卷；
+#   - 仓库目录只读挂载到 /workspace/zhizhi-agent，作为 job 的 git 源
+#     （file:// 协议），Jenkins 会 clone 到自己的 home 卷里构建，
+#     不会污染宿主机的 node_modules；
+#   - init.groovy.d：首次启动自动建 admin 用户 + 创建流水线任务。
+name: zhizhi-jenkins
+
+services:
+  jenkins:
+    build: .
+    image: zhizhi-jenkins:local
+    container_name: zhizhi-jenkins
+    restart: unless-stopped
+    ports:
+      - '8180:8080'   # Web UI
+      - '50000:50000' # inbound agent（暂用不到，预留）
+    environment:
+      JAVA_OPTS: -Djenkins.install.runSetupWizard=false -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true
+      TZ: Asia/Shanghai
+      ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-zhizhi123}
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - ./init.groovy.d:/var/jenkins_home/init.groovy.d
+      - ../..:/workspace/zhizhi-agent:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  jenkins_home:

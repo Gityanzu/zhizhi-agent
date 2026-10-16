@@ -1,0 +1,4 @@
+# Jenkins 插件清单（jenkins-plugin-cli 构建时从清华 update center 安装）
+# workflow-aggregator 会拉齐 Pipeline 全套（job/cps/stage/durable-task 等）
+workflow-aggregator
+git

@@ -1,0 +1,142 @@
+# ===== Release：桌面端打包发布 + Docker 镜像推送 =====
+#
+# 触发：打 tag v* 或手动（workflow_dispatch）。
+#
+# 产物与去向：
+#   - Windows 安装包（NSIS）+ 便携版 + latest.yml → GitHub Release（electron-updater 的
+#     generic 更新源只读 latest.yml，把 Release 附件同步到自己的静态服务器即可触发自更）
+#   - server / client Docker 镜像 → GHCR（配合 deploy/docker-compose.yml 部署）
+#
+# 打包链路说明（对应 client/electron-builder.yml 的 extraResources）：
+#   1. server: npm run build        → ../server/dist
+#   2. client/build/server-runtime  → server 生产依赖（gitignore，需现场生成）
+#   3. client: npm run build        → dist/
+#   4. electron-builder --win --publish never（显式关掉 publish：配置里是 generic 源，
+#      tag 构建默认会尝试发布流程，CI 里只要产物文件）
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write # 创建 GitHub Release
+  packages: write # 推送 GHCR 镜像
+
+jobs:
+  desktop:
+    name: 桌面端打包（Windows NSIS + Portable）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            client/package-lock.json
+
+      - name: 构建 server（tsc → dist）
+        working-directory: server
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: 生成 server 生产依赖（client/build/server-runtime）
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force client/build/server-runtime | Out-Null
+          Push-Location client/build/server-runtime
+          Copy-Item ../../server/package.json ../../server/package-lock.json .
+          npm ci --omit=dev --omit=optional --no-audit --no-fund
+          Pop-Location
+
+      - name: 构建 client（vite → dist）
+        working-directory: client
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - name: electron-builder 打包
+        working-directory: client
+        run: npx electron-builder --win --publish never
+        env:
+          # CI 上直连 GitHub 下载 Electron 二进制，覆盖 yml 里的 npmmirror 镜像
+          ELECTRON_MIRROR: https://github.com/electron/electron/releases/
+
+      - name: 上传构建产物（工件保留 14 天）
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: |
+            client/release/**/*.exe
+            client/release/**/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 发布 GitHub Release（仅 tag 触发）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            client/release/**/*.exe
+            client/release/**/latest.yml
+
+  docker:
+    name: Docker 镜像（server + client → GHCR）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成 server 镜像标签
+        id: meta-server
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-server
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=
+
+      - name: 构建并推送 server 镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.server
+          push: true
+          tags: ${{ steps.meta-server.outputs.tags }}
+          labels: ${{ steps.meta-server.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 生成 client 镜像标签
+        id: meta-client
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-client
+          tags: |
+            type=ref,event=tag
+            type=sha,prefix=
+
+      - name: 构建并推送 client 镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.client
+          push: true
+          tags: ${{ steps.meta-client.outputs.tags }}
+          labels: ${{ steps.meta-client.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

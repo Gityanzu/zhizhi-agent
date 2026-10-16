@@ -2,6 +2,9 @@
 # 构建上下文 = 仓库根目录：docker build -f deploy/Dockerfile.client .
 FROM node:20-alpine AS builder
 WORKDIR /app
+# client 依赖里有 electron（devDep），npm ci 会触发 postinstall 下载二进制；
+# 国内构建环境直连 GitHub releases 不通，走 npmmirror 镜像
+ENV ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 COPY client/package.json client/package-lock.json ./
 RUN npm ci
 COPY client/ ./

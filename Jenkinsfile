@@ -112,10 +112,28 @@ pipeline {
         }
       }
       steps {
-        // 首次运行若无 deploy/.env，从模板复制一份供填写密钥
+        // deploy/.env 不入 git：首跑时从模板生成并持久化到 JENKINS_HOME（跨构建密钥稳定），
+        // 之后的构建每次恢复到 workspace 供 compose 读取。LLM_API_KEY 留空时在应用设置里配置。
         runCmd(
-          'test -f deploy/.env || cp deploy/.env.example deploy/.env',
-          'if (-not (Test-Path deploy/.env)) { Copy-Item deploy/.env.example deploy/.env }'
+          '''
+          mkdir -p "$JENKINS_HOME"
+          if [ ! -f "$JENKINS_HOME/deploy.env" ]; then
+            cp deploy/.env.example "$JENKINS_HOME/deploy.env"
+            echo "JWT_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \\n')" >> "$JENKINS_HOME/deploy.env"
+            echo "ENCRYPTION_KEY=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \\n')" >> "$JENKINS_HOME/deploy.env"
+          fi
+          cp "$JENKINS_HOME/deploy.env" deploy/.env
+          ''',
+          '''
+          if (-not (Test-Path "$env:JENKINS_HOME/deploy.env")) {
+            Copy-Item deploy/.env.example "$env:JENKINS_HOME/deploy.env"
+            $hex = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })
+            Add-Content -Path "$env:JENKINS_HOME/deploy.env" -Encoding utf8 -Value "JWT_SECRET=$hex"
+            $hex2 = -join ((1..32) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })
+            Add-Content -Path "$env:JENKINS_HOME/deploy.env" -Encoding utf8 -Value "ENCRYPTION_KEY=$hex2"
+          }
+          Copy-Item "$env:JENKINS_HOME/deploy.env" deploy/.env
+          '''
         )
         // 用本次构建的镜像滚动更新应用栈（不带 --build，复用上一阶段产物）
         withEnv(["SERVER_IMAGE=${env.SERVER_IMAGE}", "CLIENT_IMAGE=${env.CLIENT_IMAGE}", "WEB_PORT=${env.WEB_PORT}"]) {

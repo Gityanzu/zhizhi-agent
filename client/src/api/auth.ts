@@ -6,6 +6,7 @@ export interface User {
   email: string | null;
   nickname: string | null;
   avatar: string | null;
+  bio?: string | null;
   role: string;
   status: string;
   created_at: string;
@@ -52,8 +53,22 @@ export function getCurrentUser() {
 }
 
 // 更新用户资料
-export function updateProfile(data: { nickname?: string; avatar?: string; email?: string }) {
+export function updateProfile(data: { nickname?: string; avatar?: string; email?: string; bio?: string }) {
   return api.put<{ user: User; message: string }>('/api/auth/profile', data);
+}
+
+// 上传头像（multipart，jpg/png/webp/gif ≤5MB）
+export function uploadAvatar(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post<{ user: User; message: string }>('/api/auth/avatar', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+}
+
+// 清除头像
+export function removeAvatar() {
+  return api.delete<{ user: User; message: string }>('/api/auth/avatar');
 }
 
 // 验证 token

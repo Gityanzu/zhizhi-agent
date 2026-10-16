@@ -20,11 +20,11 @@ export async function getDocuments(collectionId?: string): Promise<{ documents: 
 }
 
 export async function deleteDocument(id: string) {
-  await api.delete(`/documents/${id}`);
+  await api.delete(`/api/documents/${id}`);
 }
 
 export async function getDocumentPreview(id: string): Promise<{ id: string; name: string; size: number; chunkCount: number; content: string }> {
-  const res = await api.get(`/documents/${id}/preview`);
+  const res = await api.get(`/api/documents/${id}/preview`);
   return res.data;
 }
 
@@ -40,12 +40,12 @@ export async function createCollection(data: { name: string; description?: strin
 }
 
 export async function updateCollectionApi(id: string, data: { name?: string; description?: string; icon?: string }): Promise<{ collection: Collection }> {
-  const res = await api.put(`/collections/${id}`, data);
+  const res = await api.put(`/api/collections/${id}`, data);
   return res.data;
 }
 
 export async function deleteCollectionApi(id: string) {
-  await api.delete(`/collections/${id}`);
+  await api.delete(`/api/collections/${id}`);
 }
 
 export async function updateSessionCollectionsApi(sessionId: string, collectionIds: string[]) {
@@ -60,7 +60,7 @@ export async function getMemories() {
 }
 
 export async function deleteMemory(id: string) {
-  const res = await api.delete(`/memory/${id}`);
+  const res = await api.delete(`/api/memory/${id}`);
   return res.data;
 }
 
@@ -81,21 +81,21 @@ export async function getActivePrompt() {
 }
 
 export async function createPromptTemplate(name: string, description: string, content: string) {
-  const res = await api.post('/api/prompt', { name, description, content });
+  const res = await api.post('/api/api/prompt', { name, description, content });
   return res.data;
 }
 
 export async function updatePromptTemplate(id: string, name: string, description: string, content: string) {
-  const res = await api.put(`/prompt/${id}`, { name, description, content });
+  const res = await api.put(`/api/prompt/${id}`, { name, description, content });
   return res.data;
 }
 
 export async function deletePromptTemplate(id: string) {
-  const res = await api.delete(`/prompt/${id}`);
+  const res = await api.delete(`/api/prompt/${id}`);
   return res.data;
 }
 
 export async function activatePromptTemplate(id: string) {
-  const res = await api.post(`/prompt/${id}/activate`);
+  const res = await api.post(`/api/prompt/${id}/activate`);
   return res.data;
 }
